@@ -1,100 +1,160 @@
-# backend/app.py (完整代码)
-import os
-from flask import Flask, jsonify
-from flask_cors import CORS
-from flask_jwt_extended import JWTManager
-from werkzeug.security import generate_password_hash
-from routes.auth import auth_bp
-from routes.detection import bp as detection_bp
-from routes.admin import admin_bp
-from routes.test import test_bp  
-from db import get_db_connection, close_db # <-- 关键：导入 close_db
+# backend/app.py
+
+from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
-# --- App 初始化 ---
-app = Flask(__name__)
-CORS(app)
-UPLOAD_FOLDER = os.path.join(app.root_path, 'api', 'test', 'uploads')
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-# 确保文件夹存在
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
-# --- JWT 配置 ---
-app.config['JWT_SECRET_KEY'] = 'your_very_secret_and_long_key_here' # 生产环境请务必修改
-jwt = JWTManager(app)
+from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+import jwt
+import datetime
+import os
+from PIL import Image
+import torch
+from torchvision import transforms
+from torchvision.models import resnet34  # 确保你的模型文件和 app.py 在同一目录下
 
-# --- 数据库连接管理 ---
-# 关键: 注册一个函数，在每次请求结束后（无论成功失败）自动关闭数据库连接
-app.teardown_appcontext(close_db)
+app = Flask(__name__, static_folder='static')
+CORS(app)  # 允许跨域请求
 
-# --- 注册蓝图 ---
-app.register_blueprint(auth_bp, url_prefix='/api/auth')
-app.register_blueprint(detection_bp, url_prefix="/api/detection")
-app.register_blueprint(admin_bp, url_prefix='/api/admin')
-app.register_blueprint(test_bp, url_prefix='/api/test')
+# --- 数据库和密钥配置 ---
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mydatabase.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = 'your_super_secret_key'  # 建议使用更复杂的密钥
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
 
-# =============================
-# 用于测试的根路径
-# =============================
-@app.route('/')
-def index():
-    return jsonify({"message": "Backend running successfully!"}), 200
+db = SQLAlchemy(app)
 
-# =============================
-# 初始化数据库管理员账户
-# =============================
-def init_admin():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE role='admin'")
-    admin = cursor.fetchone()
+# --- 数据库模型 ---
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128))
 
-    if not admin:
-        print("⚙️ 未检测到管理员账户，正在创建默认管理员：admin / admin123")
-        hashed_pw = generate_password_hash("admin123")
-        cursor.execute(
-            "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
-            ("admin", hashed_pw, "admin")
-        )
-        conn.commit()
-    else:
-        print(f"✅ 检测到管理员账户：{admin['username']}")
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+class Record(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    img_url = db.Column(db.String(200), nullable=False)
+    prediction = db.Column(db.String(100), nullable=False)
+    confidence = db.Column(db.Float, nullable=False)
+    is_correct = db.Column(db.Boolean, default=None)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    user = db.relationship('User', backref=db.backref('records', lazy=True))
+
+
+# --- AI 模型加载 ---
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+model = resnet34(num_classes=5).to(device)
+model_weight_path = "./weights/resNet34.pth"  # 你的模型权重路径
+model.load_state_dict(torch.load(model_weight_path, map_location=device))
+model.eval()
+class_names = ['daisy', 'dandelion', 'roses', 'sunflowers', 'tulips'] # 替换成你的真实类别名
+
+data_transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# --- API 路由 ---
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({'message': 'User already exists'}), 409
     
-    # 注意：此处不需要手动关闭连接，因为这是在app上下文之外运行的脚本部分
-    cursor.close()
-    conn.close()
+    new_user = User(username=data['username'])
+    new_user.set_password(data['password'])
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({'message': 'User created successfully'}), 201
 
-db = SQLAlchemy()
-def create_app():
-    app = Flask(__name__, instance_relative_config=True)
-    # 从config.py加载配置 (推荐方式)
-    # app.config.from_object('config.Config')
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(username=data['username']).first()
+    if not user or not user.check_password(data['password']):
+        return jsonify({'message': 'Invalid credentials'}), 401
     
-    # 或者直接配置
-    app.config['SECRET_KEY'] = 'a_very_secret_and_long_key_for_jwt' # <-- 必须和你生成token时用的密钥一样
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///../instance/app.db'
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    # 初始化数据库
-    db.init_app(app)
-    # === 重要：配置CORS，允许你的前端访问 ===
-    # 假设你的Vue前端运行在 http://localhost:5173
-    CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}})
-    with app.app_context():
-        # === 注册你的蓝图 ===
-        # 1. 导入我们刚刚创建的蓝图
-        from .routes.admin_routes import admin_bp
-        # 2. 注册它！
-        app.register_blueprint(admin_bp)
-        # 3. 注册你已有的其他蓝图 (例如 auth_bp, detection_bp 等)
-        # from .routes.auth import auth_bp
-        # app.register_blueprint(auth_bp)
-        # 创建数据库表
-        db.create_all()
-    return app
-# =============================
-# 程序入口
-# =============================
+    token = jwt.encode({
+        'user_id': user.id,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+    
+    return jsonify({'token': token})
+
+@app.route('/api/predict', methods=['POST'])
+def predict():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+        
+    if file:
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+
+        # AI 推理
+        img = Image.open(filepath).convert('RGB')
+        img_tensor = data_transform(img).unsqueeze(0).to(device)
+        with torch.no_grad():
+            outputs = model(img_tensor)
+            _, predicted_idx = torch.max(outputs, 1)
+            probabilities = torch.softmax(outputs, dim=1)
+            confidence = probabilities[0][predicted_idx].item() * 100
+            prediction = class_names[predicted_idx.item()]
+
+        # === 关键修改 #1：使用相对路径 ===
+        # 旧的错误代码: img_url = f'http://127.0.0.1:5000/static/uploads/{filename}'
+        # 新的正确代码:
+        img_url = f'/static/uploads/{filename}'
+        
+        return jsonify({
+            'prediction': prediction, 
+            'confidence': f'{confidence:.2f}%', 
+            'img_url': img_url
+        })
+
+@app.route('/api/records', methods=['GET'])
+def get_records():
+    records_query = Record.query.order_by(Record.timestamp.desc()).all()
+    records_list = []
+    for record in records_query:
+        # === 关键修改 #2：确保返回的也是相对路径 ===
+        # 旧的逻辑可能会拼接成一个完整的 http 地址，现在我们确保它是一个干净的相对路径
+        # 假设数据库存的是 'static/uploads/image.jpg'
+        img_path = record.img_url
+        if not img_path.startswith('/'):
+            img_path = '/' + img_path
+
+        records_list.append({
+            'id': record.id,
+            'user': record.user.username,
+            'img_url': img_path,
+            'prediction': record.prediction,
+            'confidence': record.confidence,
+            'is_correct': record.is_correct,
+            'timestamp': record.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        })
+    return jsonify(records_list)
+
+# 用于提供上传的图片
+@app.route('/static/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 if __name__ == '__main__':
-    with app.app_context(): # 确保 init_admin 在 app 上下文中运行，以便能找到 g
-        init_admin()
-    print("🚀 Flask backend starting at http://127.0.0.1:5000 ...")
-    app.run(debug=True, port=5000)
+    with app.app_context():
+        db.create_all()
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    app.run(host='0.0.0.0', port=5000, debug=True)

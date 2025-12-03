@@ -1,15 +1,12 @@
-// src/api/axios.js
+// frontend/src/api/axios.js
 
 import axios from 'axios'
 
 const instance = axios.create({
-  // 错误的老写法：
-  // baseURL: 'http://127.0.0.1:5000/api/',
-  
-  // 正确的新写法：
-  // 这样，所有请求都会发往 Vite 开发服务器的 /api 路径下，
-  // 然后被 Vite 代理转发到真正的后端地址。
-  baseURL: '/api', 
+  // === 关键修改 #3：使用相对路径代理 ===
+  // 旧的错误代码: baseURL: 'http://127.0.0.1:5000/api/',
+  // 新的正确代码:
+  baseURL: '/api',
   
   timeout: 5000
 })
@@ -21,6 +18,8 @@ instance.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
+}, (error) => {
+  return Promise.reject(error)
 })
 
 export default instance

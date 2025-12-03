@@ -1,10 +1,11 @@
-import { fileURLToPath, URL } from 'node:url'
+// frontend/vite.config.js
 
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
-// https://vite.dev/config/
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     vue(),
@@ -15,26 +16,21 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
   },
-  // --- 从这里开始是新增的内容 ---
+  // === 新增的核心配置：服务器和代理 ===
   server: {
-    // 这个 host:'0.0.0.0' 是为了让你在自己电脑上用 IP 地址访问，
-    // 我在服务器上运行时，也是必须的。
-    host: '0.0.0.0', 
-    
+    host: '0.0.0.0', // 允许通过 IP 地址访问
+    port: 5174,      // 前端开发服务器端口
     proxy: {
-      // 我们约定，所有发往后端的请求，路径都以 '/api' 开头
+      // 代理 API 请求
       '/api': {
-        // 后端服务实际的地址
-        target: 'http://127.0.0.1:5000',
-
-        // 必须设置为 true，不然会请求失败
-        changeOrigin: true,
-
-        // 这个是可选的，意思是把请求路径中的 /api 去掉，
-        // 比如前端请求 /api/login，代理后会变成 /login 再发给后端
-        //rewrite: (path) => path.replace(/^\/api/, '') 
+        target: 'http://127.0.0.1:5000', // 指向你的 Flask 后端服务
+        changeOrigin: true, // 必须设置为 true
+      },
+      // 代理静态文件（如上传的图片）请求
+      '/static': {
+        target: 'http://127.0.0.1:5000', // 同样指向 Flask 后端
+        changeOrigin: true, // 必须设置为 true
       }
     }
   }
-  // --- 新增内容到这里结束 ---
 })
