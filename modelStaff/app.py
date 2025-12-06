@@ -116,7 +116,7 @@ def handle_prediction():
         return jsonify({'error': '文件类型不被允许(file type not allowed)'}), 400
         
 # 创建一个专门存放反馈数据的文件夹
-FEEDBACK_FOLDER = '/home/hzcu/outcomes/feedback_data'
+FEEDBACK_FOLDER = '/home/hzcu/repo/modelStaff/feedback_data'
 os.makedirs(FEEDBACK_FOLDER, exist_ok=True)
 @app.route('/feedback', methods=['POST'])
 def receive_feedback():

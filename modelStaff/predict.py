@@ -10,7 +10,7 @@ import json
 
 # --- 1. 配置参数 ---
 # 模型权重路径 (使用你训练好的那个!)
-MODEL_PATH = '/home/hzcu/outcomes/ResNet50_v1.pth' 
+MODEL_PATH = '/home/hzcu/repo/modelStaff/ResNet50_v1.pth' 
 # 数据集根目录 (用来获取类别名称)
 # DATA_DIR = '/home/jovyan/notebook/Agri/PlantDiseases_Final_Split'
 # 类别数量
