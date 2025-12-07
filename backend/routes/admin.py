@@ -41,7 +41,7 @@ def get_detections():
         SELECT 
             d.id, d.image_path, d.label, d.confidence, 
             d.is_processed, d.admin_uploaded, d.upload_status, 
-            d.created_at, u.username 
+            d.create_at, u.username 
         FROM detections d
         JOIN users u ON d.user_id = u.id
     """

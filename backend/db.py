@@ -1,5 +1,3 @@
-# backend/db.py (完整代码 - 已修正语法错误)
-
 import mysql.connector
 from flask import g
 
@@ -66,10 +64,10 @@ def get_all_detections():
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT 
-            d.id, d.image_path, d.label, d.confidence, d.is_processed, d.admin_uploaded, d.created_at, u.username AS user
+            d.id, d.image_path, d.label, d.confidence, d.is_processed, d.admin_uploaded, d.create_at, u.username AS user
         FROM detections d
         JOIN users u ON d.user_id = u.id
-        ORDER BY d.created_at DESC
+        ORDER BY d.create_at DESC
     """)
     rows = cursor.fetchall()
     # 注意：不再需要 cursor.close() 和 conn.close()

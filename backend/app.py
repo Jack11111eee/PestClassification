@@ -8,6 +8,7 @@ from routes.auth import auth_bp
 from routes.detection import bp as detection_bp
 from routes.admin import admin_bp
 from routes.test import test_bp  
+from routes.user_manage import user_admin_bp 
 from db import get_db_connection, close_db # <-- 关键：导入 close_db
 from flask_sqlalchemy import SQLAlchemy
 # --- App 初始化 ---
@@ -15,6 +16,7 @@ app = Flask(__name__)
 CORS(app)
 UPLOAD_FOLDER = os.path.join(app.root_path, 'api', 'test', 'uploads')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 # 确保文件夹存在
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
@@ -31,7 +33,7 @@ app.register_blueprint(auth_bp, url_prefix='/api/auth')
 app.register_blueprint(detection_bp, url_prefix="/api/detection")
 app.register_blueprint(admin_bp, url_prefix='/api/admin')
 app.register_blueprint(test_bp, url_prefix='/api/test')
-
+app.register_blueprint(user_admin_bp, url_prefix='/api/admin')
 # =============================
 # 用于测试的根路径
 # =============================
