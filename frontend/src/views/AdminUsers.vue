@@ -1,249 +1,302 @@
-<!-- src/views/AdminUsers.vue -->
 <template>
-  <header>
-    <nav>
-      <div class="nav">
-        <a href="/home">返回用户主页</a>
-        <a href="/admin/detections">管理检测记录</a>
-        <a href="/admin/users">刷新用户列表</a>
-      </div>
-    </nav>
-  </header>
+  <div class="user-management">
+    <h1>用户管理</h1>
 
-  <div class="admin-page">
-    <!-- =================== 添加新用户模块 =================== -->
-    <div class="add-user-form">
-      <h3>添加新用户/管理员</h3>
-      <form @submit.prevent="addUser">
-        <input v-model="newUser.username" type="text" placeholder="用户名" required />
-        <input v-model="newUser.password" type="password" placeholder="密码" required />
-        <select v-model="newUser.role" required>
-          <option value="user">普通用户</option>
-          <option value="admin">管理员</option>
-        </select>
-        <button type="submit">创建用户</button>
-      </form>
+    <!-- 添加用户按钮 -->
+    <div class="actions">
+      <button @click="openAddUserModal">添加新用户</button>
     </div>
 
-    <!-- =================== 用户列表模块 =================== -->
-    <h2>用户管理</h2>
-    <table class="data-table" v-if="users.length">
+    <!-- 用户列表表格 -->
+    <table class="user-table">
       <thead>
         <tr>
           <th>ID</th>
-          <th>用户名</th>
-          <th>角色</th>
-          <th>注册时间</th>
-          <th>操作</th>
+          <th>用户名 (Username)</th>
+          <th>角色 (Role)</th>
+          <th>创建时间 (Create At)</th>
+          <th>操作 (Actions)</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody v-if="users.length > 0">
         <tr v-for="user in users" :key="user.id">
           <td>{{ user.id }}</td>
           <td>{{ user.username }}</td>
           <td>
-            <span :class="['role-tag', user.role]">{{ user.role === 'admin' ? '管理员' : '普通用户' }}</span>
+            <span :class="['role-tag', user.role]">{{ user.role }}</span>
           </td>
-          <td>{{ formatBeijingTime(user.created_at) }}</td>
+          <td>{{ formatDateTime(user.create_at) }}</td>
           <td>
-            <button class="btn-reset" @click="resetPassword(user.id, user.username)">重置密码</button>
-            <button class="btn-delete" @click="deleteUser(user.id, user.username)">删除用户</button>
+            <button @click="handleResetPassword(user)" class="reset-btn">重置密码</button>
           </td>
         </tr>
       </tbody>
+      <tbody v-else>
+        <tr>
+          <td colspan="5" class="no-data">正在加载或暂无数据...</td>
+        </tr>
+      </tbody>
     </table>
-    <p v-else>正在加载用户数据...</p>
+
+    <!-- 添加用户弹窗 -->
+    <div v-if="isModalOpen" class="modal-overlay" @click.self="closeAddUserModal">
+      <div class="modal-content">
+        <h2>添加新用户</h2>
+        <form @submit.prevent="handleAddNewUser">
+          <div class="form-group">
+            <label for="username">用户名</label>
+            <input type="text" id="username" v-model="newUser.username" required>
+          </div>
+          <div class="form-group">
+            <label for="password">密码</label>
+            <input type="password" id="password" v-model="newUser.password" required>
+          </div>
+          <div class="form-group">
+            <label for="role">角色</label>
+            <select id="role" v-model="newUser.role">
+              <option value="user">普通用户 (user)</option>
+              <option value="admin">管理员 (admin)</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button type="button" @click="closeAddUserModal">取消</button>
+            <button type="submit">确认添加</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
-<script setup>
-import { ref, onMounted } from 'vue';
-import axios from '../api/axios'; // 确保你使用了封装的axios实例
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+<script>
+// --- 变化点 1: 直接导入 axios ---
+import axios from 'axios';
 
-dayjs.extend(utc);
-dayjs.extend(timezone);
+export default {
+  name: 'AdminUsers',
+  data() {
+    return {
+      users: [],
+      isModalOpen: false,
+      newUser: {
+        username: '',
+        password: '',
+        role: 'user',
+      },
+    };
+  },
+  methods: {
+    // --- 变化点 2: 封装获取认证头的方法，方便复用 ---
+    getAuthHeaders() {
+      const token = localStorage.getItem('token');
+      // 如果有 token，返回包含 Authorization 的 header 对象，否则返回空对象
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    },
 
-const backendUrl = "http://127.0.0.1:5000"; // 你的后端地址
-const users = ref([]);
-const newUser = ref({
-  username: '',
-  password: '',
-  role: 'user' // 默认创建普通用户
-});
-
-// 时间格式化函数 (与AdminDetections.vue中的一样)
-const formatBeijingTime = (gmtDate) => {
-  if (!gmtDate) return 'N/A';
-  return dayjs(gmtDate).tz('Asia/Shanghai').format('YYYY-MM-DD HH:mm:ss');
-};
-
-// ========== 1. 获取所有用户数据 ==========
-const fetchUsers = async () => {
-  const token = localStorage.getItem("token");
-  try {
-    const res = await axios.get(`${backendUrl}/api/admin/users`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    users.value = res.data;
-  } catch (err) {
-    alert('加载用户列表失败: ' + (err.response?.data?.msg || err.message));
-  }
-};
-
-// 组件挂载时自动加载用户
-onMounted(fetchUsers);
-
-// ========== 2. 添加新用户 ==========
-const addUser = async () => {
-  if (!newUser.value.username || !newUser.value.password) {
-    alert('用户名和密码不能为空！');
-    return;
-  }
-  const token = localStorage.getItem("token");
-  try {
-    const res = await axios.post(`${backendUrl}/api/admin/users`, newUser.value, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    alert('用户创建成功！');
-    // 清空表单
-    newUser.value.username = '';
-    newUser.value.password = '';
-    newUser.value.role = 'user';
-    // 重新加载用户列表以显示新用户
-    fetchUsers(); 
-  } catch (err) {
-    alert('创建用户失败: ' + (err.response?.data?.msg || err.message));
-  }
-};
-
-// ========== 3. 重置密码 ==========
-const resetPassword = async (userId, username) => {
-  const newPassword = prompt(`请输入为用户 "${username}" 设置的新密码:`);
-  if (!newPassword) {
-    alert('操作已取消。');
-    return;
-  }
-  
-  const token = localStorage.getItem("token");
-  try {
-    const res = await axios.put(`${backendUrl}/api/admin/users/${userId}/reset-password`, 
-      { password: newPassword }, 
-      {
-        headers: { Authorization: `Bearer ${token}` }
+    // --- 变化点 3: fetchUsers 直接使用 axios ---
+    async fetchUsers() {
+      try {
+        const response = await axios.get('/api/admin/users', {
+          headers: this.getAuthHeaders()
+        });
+        this.users = response.data;
+      } catch (error) {
+        console.error("获取用户列表失败:", error);
+        alert('获取用户列表失败: ' + (error.response?.data?.message || error.message));
       }
-    );
-    alert(res.data.msg || '密码重置成功！');
-  } catch (err) {
-    alert('重置密码失败: ' + (err.response?.data?.msg || err.message));
-  }
-};
+    },
+    
+    openAddUserModal() {
+      this.newUser = { username: '', password: '', role: 'user' };
+      this.isModalOpen = true;
+    },
 
-// ========== 4. 删除用户 ==========
-const deleteUser = async (userId, username) => {
-  if (!confirm(`确定要删除用户 "${username}" 吗？此操作不可恢复！`)) {
-    return;
-  }
-  
-  const token = localStorage.getItem("token");
-  try {
-    const res = await axios.delete(`${backendUrl}/api/admin/users/${userId}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    alert(res.data.msg || '用户删除成功！');
-    // 重新加载用户列表
-    fetchUsers();
-  } catch (err) {
-    alert('删除用户失败: ' + (err.response?.data?.msg || err.message));
+    closeAddUserModal() {
+      this.isModalOpen = false;
+    },
+
+    // --- 变化点 4: handleAddNewUser 直接使用 axios ---
+    async handleAddNewUser() {
+      try {
+        const response = await axios.post('/api/admin/users', this.newUser, {
+          headers: this.getAuthHeaders()
+        });
+        this.users.unshift(response.data);
+        alert(`用户 "${response.data.username}" 添加成功!`);
+        this.closeAddUserModal();
+      } catch (error) {
+        console.error("添加用户失败:", error);
+        alert('添加用户失败: ' + (error.response?.data?.message || error.message));
+      }
+    },
+
+    // --- 变化点 5: handleResetPassword 直接使用 axios ---
+    async handleResetPassword(user) {
+      if (!confirm(`确定要重置用户 "${user.username}" 的密码吗？`)) {
+        return;
+      }
+      try {
+        // 对于 POST 请求，如果不需要发送数据体，第二个参数可以是 null 或 {}
+        const response = await axios.post(`/api/admin/users/${user.id}/reset-password`, null, {
+          headers: this.getAuthHeaders()
+        });
+        alert(
+          `密码重置成功！\n\n` +
+          `用户: ${user.username}\n` +
+          `新密码: ${response.data.new_password}\n\n` +
+          `请妥善告知用户。`
+        );
+      } catch (error) {
+        console.error("重置密码失败:", error);
+        alert('重置密码失败: ' + (error.response?.data?.message || error.message));
+      }
+    },
+
+    formatDateTime(dateTimeString) {
+      if (!dateTimeString) return 'N/A';
+      const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+      return new Date(dateTimeString).toLocaleString('zh-CN', options);
+    }
+  },
+  created() {
+    this.fetchUsers();
   }
 };
 </script>
 
 <style scoped>
-/* 使用和 AdminDetections.vue 类似的样式 */
-.admin-page {
-  padding: 20px;
+/* 样式部分和之前完全一样，这里省略以保持简洁，你可以直接使用之前的样式代码 */
+.user-management {
   max-width: 1000px;
-  margin: 0 auto;
+  margin: 2rem auto;
+  padding: 1rem;
 }
 
-.add-user-form {
-  background-color: #f9f9f9;
-  padding: 20px;
-  border-radius: 8px;
-  margin-bottom: 30px;
-  border: 1px solid #e0e0e0;
+h1 {
+  text-align: center;
+  margin-bottom: 2rem;
 }
 
-.add-user-form h3 {
-  margin-top: 0;
+.actions {
+  margin-bottom: 1rem;
+  text-align: right;
 }
 
-.add-user-form form {
-  display: flex;
-  gap: 15px;
-  align-items: center;
-}
-
-.add-user-form input,
-.add-user-form select {
-  padding: 8px 12px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.add-user-form button {
-  background-color: #28a745;
+.actions button {
+  padding: 0.5rem 1rem;
+  background-color: #007bff;
   color: white;
   border: none;
-  padding: 8px 15px;
   border-radius: 4px;
   cursor: pointer;
 }
-.add-user-form button:hover {
-  background-color: #218838;
-}
 
-.data-table {
+.user-table {
   width: 100%;
   border-collapse: collapse;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
-.data-table th, .data-table td {
+
+.user-table th, .user-table td {
   border: 1px solid #ddd;
-  padding: 12px;
+  padding: 0.75rem;
   text-align: left;
 }
-.data-table th {
-  background-color: #f2f2f2;
+
+.user-table th {
+  background-color: #f8f9fa;
+}
+
+.no-data {
+  text-align: center;
+  color: #888;
+  padding: 2rem;
 }
 
 .role-tag {
-  padding: 3px 8px;
+  padding: 0.2rem 0.5rem;
   border-radius: 12px;
   color: white;
   font-size: 0.8em;
 }
+
 .role-tag.admin {
-  background-color: #dc3545;
-}
-.role-tag.user {
-  background-color: #007bff;
+  background-color: #dc3545; /* 红色 */
 }
 
-.btn-reset, .btn-delete {
-  padding: 5px 10px;
-  border-radius: 4px;
-  border: none;
-  color: white;
-  cursor: pointer;
-  margin-right: 5px;
+.role-tag.user {
+  background-color: #28a745; /* 绿色 */
 }
-.btn-reset {
+
+.reset-btn {
+  padding: 0.3rem 0.6rem;
   background-color: #ffc107;
+  color: #212529;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
-.btn-delete {
-  background-color: #dc3545;
+
+/* 弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  width: 400px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.form-group input, .form-group select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.form-actions button {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid #ccc;
+}
+
+.form-actions button[type="submit"] {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
 }
 </style>
