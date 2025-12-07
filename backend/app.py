@@ -1,56 +1,100 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import requests
+# backend/app.py (完整代码)
 import os
-
+from flask import Flask, jsonify
+from flask_cors import CORS
+from flask_jwt_extended import JWTManager
+from werkzeug.security import generate_password_hash
+from routes.auth import auth_bp
+from routes.detection import bp as detection_bp
+from routes.admin import admin_bp
+from routes.test import test_bp  
+from db import get_db_connection, close_db # <-- 关键：导入 close_db
+from flask_sqlalchemy import SQLAlchemy
+# --- App 初始化 ---
 app = Flask(__name__)
-CORS(app)  # 允许跨域请求
-
-# 定义模型服务的地址。
-# 假设模型服务会运行在本地的 5001 端口
-MODEL_SERVICE_URL = "http://127.0.0.1:5001/predict"
-
-# 创建一个文件夹来临时存放上传的图片
-UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+CORS(app)
+UPLOAD_FOLDER = os.path.join(app.root_path, 'api', 'test', 'uploads')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# 确保文件夹存在
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+# --- JWT 配置 ---
+app.config['JWT_SECRET_KEY'] = 'your_very_secret_and_long_key_here' # 生产环境请务必修改
+jwt = JWTManager(app)
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
+# --- 数据库连接管理 ---
+# 关键: 注册一个函数，在每次请求结束后（无论成功失败）自动关闭数据库连接
+app.teardown_appcontext(close_db)
+
+# --- 注册蓝图 ---
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
+app.register_blueprint(detection_bp, url_prefix="/api/detection")
+app.register_blueprint(admin_bp, url_prefix='/api/admin')
+app.register_blueprint(test_bp, url_prefix='/api/test')
+
+# =============================
+# 用于测试的根路径
+# =============================
+@app.route('/')
+def index():
+    return jsonify({"message": "Backend running successfully!"}), 200
+
+# =============================
+# 初始化数据库管理员账户
+# =============================
+def init_admin():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE role='admin'")
+    admin = cursor.fetchone()
+
+    if not admin:
+        print("⚙️ 未检测到管理员账户，正在创建默认管理员：admin / admin123")
+        hashed_pw = generate_password_hash("admin123")
+        cursor.execute(
+            "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+            ("admin", hashed_pw, "admin")
+        )
+        conn.commit()
+    else:
+        print(f"✅ 检测到管理员账户：{admin['username']}")
     
-    file = request.files['file']
+    # 注意：此处不需要手动关闭连接，因为这是在app上下文之外运行的脚本部分
+    cursor.close()
+    conn.close()
+
+db = SQLAlchemy()
+def create_app():
+    app = Flask(__name__, instance_relative_config=True)
+    # 从config.py加载配置 (推荐方式)
+    # app.config.from_object('config.Config')
     
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-
-    if file:
-        # 准备要发送给模型服务的数据
-        # 'files' 这个 key 必须和模型服务接收端的名字匹配
-        files = {'file': (file.filename, file.read(), file.mimetype)}
-        
-        try:
-            # 向模型服务发送 POST 请求
-            response = requests.post(MODEL_SERVICE_URL, files=files)
-            
-            # 检查模型服务是否成功返回
-            if response.status_code == 200:
-                # 将模型服务的返回结果直接转发给前端
-                return jsonify(response.json())
-            else:
-                # 如果模型服务出错，也把错误信息返回给前端
-                error_msg = f"Error from model service: {response.status_code} {response.text}"
-                print(error_msg)
-                return jsonify({'error': error_msg}), 500
-
-        except requests.exceptions.RequestException as e:
-            # 如果连接模型服务失败（比如模型服务没启动）
-            error_msg = f"Could not connect to model service: {e}"
-            print(error_msg)
-            return jsonify({'error': error_msg}), 500
-
+    # 或者直接配置
+    app.config['SECRET_KEY'] = 'a_very_secret_and_long_key_for_jwt' # <-- 必须和你生成token时用的密钥一样
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///../instance/app.db'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # 初始化数据库
+    db.init_app(app)
+    # === 重要：配置CORS，允许你的前端访问 ===
+    # 假设你的Vue前端运行在 http://localhost:5173
+    CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}})
+    with app.app_context():
+        # === 注册你的蓝图 ===
+        # 1. 导入我们刚刚创建的蓝图
+        from .routes.admin_routes import admin_bp
+        # 2. 注册它！
+        app.register_blueprint(admin_bp)
+        # 3. 注册你已有的其他蓝图 (例如 auth_bp, detection_bp 等)
+        # from .routes.auth import auth_bp
+        # app.register_blueprint(auth_bp)
+        # 创建数据库表
+        db.create_all()
+    return app
+# =============================
+# 程序入口
+# =============================
 if __name__ == '__main__':
-    # 后端服务运行在默认的 5000 端口
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    with app.app_context(): # 确保 init_admin 在 app 上下文中运行，以便能找到 g
+        init_admin()
+    print("🚀 Flask backend starting at http://127.0.0.1:5000 ...")
+    app.run(debug=True, port=5000)
