@@ -41,9 +41,9 @@ def get_detections():
         SELECT 
             d.id, d.image_path, d.label, d.confidence, 
             d.is_processed, d.admin_uploaded, d.upload_status, 
-            d.create_at, u.username 
+            d.created_at, u.username 
         FROM detections d
-        JOIN users u ON d.user_id = u.id
+        LEFT JOIN users u ON d.user_id = u.id
     """
 
     if filter_status == "processed":
@@ -198,3 +198,4 @@ def process_detection():
         'failure_count': len(failures),
         'failures': failures
     }), 200
+
