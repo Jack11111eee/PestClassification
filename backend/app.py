@@ -47,10 +47,11 @@ def index():
 def init_admin():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE role='admin'")
-    admin = cursor.fetchone()
 
-    if not admin:
+    cursor.execute("SELECT * FROM users WHERE role='admin'")
+    admins = cursor.fetchall()   # ⭐ 必须：读取所有结果避免Unread result found
+
+    if not admins:
         print("⚙️ 未检测到管理员账户，正在创建默认管理员：admin / admin123")
         hashed_pw = generate_password_hash("admin123")
         cursor.execute(
@@ -59,11 +60,11 @@ def init_admin():
         )
         conn.commit()
     else:
-        print(f"✅ 检测到管理员账户：{admin['username']}")
-    
-    # 注意：此处不需要手动关闭连接，因为这是在app上下文之外运行的脚本部分
+        print(f"✅ 检测到管理员账户：{admins[0]['username']}")
+
     cursor.close()
     conn.close()
+
 
 db = SQLAlchemy()
 def create_app():

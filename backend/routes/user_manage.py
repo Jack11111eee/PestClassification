@@ -1,8 +1,7 @@
 import functools
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash
-from flask_jwt_extended import jwt_required, get_jwt
-
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from db import get_db_connection
 
 # 创建一个新的蓝图，专门用于管理员的用户管理
@@ -141,3 +140,54 @@ def reset_password(user_id):
     except Exception as e:
         print(f"Error resetting password for user {user_id}: {e}")
         return jsonify({"message": "重置密码失败"}), 500
+
+@user_admin_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+@admin_required
+def delete_user(user_id):
+    """
+    [DELETE] /api/admin/users/<user_id>
+    删除指定用户，以及其在 detections 表中的所有记录。
+    """
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 防止管理员删自己
+        current_user_id = get_jwt_identity()
+        if int(user_id) == int(current_user_id):
+            return jsonify({"message": "不能删除自己"}), 400
+
+        # 检查用户是否存在
+        cursor.execute("SELECT id FROM users WHERE id=%s", (user_id,))
+        if not cursor.fetchone():
+            return jsonify({"message": "用户不存在"}), 404
+
+        # ---- 开始事务（不需要 start_transaction）----
+        conn.autocommit = False
+
+        # 删除 detections
+        cursor.execute("DELETE FROM detections WHERE user_id=%s", (user_id,))
+
+        # 删除用户
+        cursor.execute("DELETE FROM users WHERE id=%s", (user_id,))
+
+        # 提交事务
+        conn.commit()
+
+        return jsonify({"message": f"用户 {user_id} 已成功删除"}), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Error deleting user {user_id}: {e}")
+        return jsonify({"message": "删除用户失败", "error": str(e)}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
