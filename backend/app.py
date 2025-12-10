@@ -44,14 +44,6 @@ app.register_blueprint(detection_bp, url_prefix="/api/detection")
 app.register_blueprint(admin_bp, url_prefix='/api/admin')
 app.register_blueprint(test_bp, url_prefix='/api/test')
 
-# !!! 注意：蓝图冲突 !!!
-# 你不能将两个不同的蓝图注册到同一个 /api/admin 前缀。
-# 我暂时注释掉 user_admin_bp。你需要决定它的正确路径。
-# 比如，你可以把它改成 '/api/user-management'
-# app.register_blueprint(user_admin_bp, url_prefix='/api/user-management') 
-# 暂时先不注册，避免覆盖掉 admin_bp 里的 /api/admin/detections 接口
-# app.register_blueprint(user_admin_bp, url_prefix='/api/admin') 
-
 # =============================
 # --- 3. 辅助函数与路由 ---
 # =============================
@@ -90,6 +82,21 @@ def init_admin():
 # --- 4. 程序入口 (最关键的修改！) ---
 # =============================
 if __name__ == '__main__':
+    # with app.app_context():
+    #     print("="*80)
+    #     print("[[[ Flask 应用中所有可用的 API 路由列表 ]]]")
+    #     rules = []
+    #     for rule in app.url_map.iter_rules():
+    #         # 过滤掉 Flask 内部的 'static' 路由
+    #         if rule.endpoint != 'static':
+    #             # 获取路由支持的 HTTP 方法 (GET, POST, etc.)
+    #             methods = ','.join(sorted(rule.methods))
+    #             # 格式化输出：URL -> Endpoint (Methods)
+    #             rules.append(f"{rule.rule:<40} {rule.endpoint:<20} {methods}")
+        
+    #     for r in sorted(rules):
+    #         print(r)
+    #     print("="*80)
     # 初始化管理员
     init_admin()
     

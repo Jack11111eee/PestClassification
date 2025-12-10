@@ -106,161 +106,180 @@
   </div>
 </template>
 
-<script>
-import axios from "axios";
-import { useRouter } from "vue-router";
-import { jwtDecode } from "jwt-decode";
-
-
-export default {
-  name: "AdminUsers",
-
-  data() {
-    return {
-      user: null,
-      users: [],
-      isModalOpen: false,
-      newUser: {
-        username: "",
-        password: "",
-        role: "user",
-      }
+<script setup>
+  import { ref, reactive, onMounted } from "vue";
+  import { useRouter } from "vue-router";
+  import { jwtDecode } from "jwt-decode";
+  import dayjs from "dayjs"; // 推荐使用 dayjs 来格式化时间，更专业
+  
+  import request from "../api/axios";
+  
+  // --- 响应式状态定义 ---
+  const user = ref(null); // 当前登录的用户信息
+  const users = ref([]); // 用户列表
+  const isModalOpen = ref(false); // 控制添加用户模态框的显示
+  const newUser = reactive({ // 使用 reactive 来处理对象，更方便
+    username: "",
+    password: "",
+    role: "user",
+  });
+  const isLoading = ref(true); // 加载状态
+  const router = useRouter(); // 获取 router 实例
+  
+  // --- 生命周期函数 ---
+  onMounted(() => {
+    // checkLogin(); // 检查登录状态的逻辑通常在路由守卫中做，这里暂时保留
+    fetchUsers(); // 组件挂载后，获取用户列表
+  });
+  
+  // --- 方法定义 ---
+  
+  // 2. 【重要】不再需要 getAuthHeaders，request 拦截器会自动处理
+  
+  // ================================
+  // 加载用户列表
+  // ================================
+  async function fetchUsers() {
+    isLoading.value = true;
+    try {
+      // 【修改】使用 request 实例，并移除 headers
+      const response = await request.get("/admin/users");
+      console.log("【用户管理】成功获取用户列表:", response.data);
+      users.value = response.data || [];
+    } catch (error) {
+      console.error("获取用户列表失败:", error);
+      alert(error.response?.data?.msg || "获取用户列表失败");
+    } finally {
+      isLoading.value = false;
+    }
+  }
+  
+  // ================================
+  // 添加用户
+  // ================================
+  function openAddUserModal() {
+    // 重置 newUser 对象
+    Object.assign(newUser, { username: "", password: "", role: "user" });
+    isModalOpen.value = true;
+  }
+  
+  function closeAddUserModal() {
+    isModalOpen.value = false;
+  }
+  
+  async function handleAddNewUser() {
+    if (!newUser.username || !newUser.password) {
+      alert("用户名和密码不能为空！");
+      return;
+    }
+    try {
+      // 【修改】使用 request 实例，并移除 headers
+      const response = await request.post("/admin/users", newUser);
+      // 【修改】所有 this.xxx 都变成了 xxx.value
+      users.value.unshift(response.data);
+      alert(`用户 "${response.data.username}" 添加成功！`);
+      closeAddUserModal();
+    } catch (error) {
+      console.error("添加用户失败:", error);
+      alert(error.response?.data?.msg || "添加用户失败");
+    }
+  }
+  
+  // ================================
+  // 重置密码
+  // ================================
+  async function handleResetPassword(userToReset) {
+    if (!confirm(`确认重置用户 "${userToReset.username}" 的密码？`)) return;
+  
+    try {
+      // 【修改】使用 request 实例，并移除 headers
+      const response = await request.post(
+        `/admin/users/${userToReset.id}/reset-password`
+      );
+  
+      // 把新密码复制到剪贴板，方便管理员使用
+      navigator.clipboard.writeText(response.data.new_password);
+      alert(`用户 "${userToReset.username}" 的新密码已重置并复制到剪贴板！\n新密码：${response.data.new_password}`);
+  
+    } catch (error) {
+      console.error("重置密码失败:", error);
+      alert(error.response?.data?.msg || "重置密码失败");
+    }
+  }
+  
+  // ================================
+  // 删除用户
+  // ================================
+  async function handleDeleteUser(userToDelete) {
+    if (!confirm(`确认注销用户 "${userToDelete.username}"？`)) return;
+  
+    try {
+      // 【修改】使用 request 实例，并移除 headers
+      await request.delete(`/api/admin/users/${userToDelete.id}`);
+      users.value = users.value.filter((u) => u.id !== userToDelete.id);
+      alert(`用户 "${userToDelete.username}" 已被删除`);
+    } catch (error) {
+      console.error("删除用户失败:", error);
+      alert(error.response?.data?.msg || "删除用户失败");
+    }
+  }
+  
+  // ================================
+  // 工具函数 - 格式化时间
+  // ================================
+  function formatDateTime(t) {
+    if (!t) return "N/A";
+    return dayjs(t).format("YYYY-MM-DD HH:mm:ss");
+  }
+  
+  // 登录检查和登出的逻辑可以保留，但通常这些全局逻辑会放在路由守卫或 Pinia store 中
+  function checkLogin() {
+  // 1. 从 localStorage 获取 token
+  const token = localStorage.getItem("token");
+  // 2. 如果没有 token，直接跳转到登录页
+  if (!token) {
+    alert("您尚未登录，请先登录！");
+    router.push("/login");
+    return false; // 返回 false 表示校验未通过
+  }
+  try {
+    // 3. 解码 token
+    const decoded = jwtDecode(token);
+    // 4. 检查 token 是否过期
+    // decoded.exp 是秒级时间戳，Date.now() 是毫秒，所以要除以 1000
+    const isExpired = decoded.exp < Date.now() / 1000;
+    if (isExpired) {
+      alert("登录已过期，请重新登录！");
+      logout(); // 调用登出函数，清空 token 并跳转
+      return false; // 返回 false 表示校验未通过
+    }
+    // 5. 校验通过，将解码后的用户信息存入 ref
+    user.value = {
+      id: decoded.sub, // 通常 'sub' 代表 user id
+      username: decoded.username,
+      role: decoded.role,
     };
-  },
-
-  created() {
-    this.checkLogin();
-    this.fetchUsers();
-  },
-
-  methods: {
-    // ================================
-    // 检查登录并获取用户信息
-    // ================================
-    checkLogin() {
-      const token = localStorage.getItem("token");
-      const router = useRouter();
-
-      if (!token) {
-        router.push("/login");
-        return;
-      }
-
-      try {
-        const decoded = jwtDecode(token);
-        const expired = decoded.exp < Date.now() / 1000;
-
-        if (expired) {
-          this.logout();
-          return;
-        }
-
-        this.user = {
-          id: decoded.sub,
-          username: decoded.username,
-          role: decoded.role,
-        };
-      } catch (e) {
-        console.error("Token 解码失败", e);
-        this.logout();
-      }
-    },
-
-    logout() {
+    
+    // 6. 【重要】检查用户角色权限
+    if (user.value.role !== 'admin') {
+      alert("权限不足，您不是管理员！");
+      router.push("/"); // 跳转到主页或其他无权限页面
+      return false;
+    }
+    return true; // 返回 true 表示校验通过
+    } catch (e) {
+      console.error("Token 解码或校验失败", e);
+      alert("无效的登录状态，请重新登录！");
+      logout();
+      return false; // 返回 false 表示校验未通过
+    }
+  }
+  function logout() {
       localStorage.removeItem("token");
-      this.$router.push("/login");
-    },
-
-    getAuthHeaders() {
-      const token = localStorage.getItem("token");
-      return token ? { Authorization: `Bearer ${token}` } : {};
-    },
-
-    // ================================
-    // 加载用户列表
-    // ================================
-    async fetchUsers() {
-      try {
-        const response = await axios.get("/api/admin/users", {
-          headers: this.getAuthHeaders(),
-        });
-        this.users = response.data;
-      } catch (error) {
-        console.error("获取用户列表失败:", error);
-        alert("获取用户列表失败");
-      }
-    },
-
-    // ================================
-    // 添加用户
-    // ================================
-    openAddUserModal() {
-      this.newUser = { username: "", password: "", role: "user" };
-      this.isModalOpen = true;
-    },
-
-    closeAddUserModal() {
-      this.isModalOpen = false;
-    },
-
-    async handleAddNewUser() {
-      try {
-        const response = await axios.post("/api/admin/users", this.newUser, {
-          headers: this.getAuthHeaders(),
-        });
-        this.users.unshift(response.data);
-        alert(`用户 "${response.data.username}" 添加成功！`);
-        this.closeAddUserModal();
-      } catch (error) {
-        console.error("添加用户失败:", error);
-        alert("添加用户失败");
-      }
-    },
-
-    // ================================
-    // 重置密码
-    // ================================
-    async handleResetPassword(user) {
-      if (!confirm(`确认重置用户 "${user.username}" 的密码？`)) return;
-
-      try {
-        const response = await axios.post(
-          `/api/admin/users/${user.id}/reset-password`,
-          null,
-          { headers: this.getAuthHeaders() }
-        );
-
-        alert(`新密码：${response.data.new_password}`);
-      } catch (error) {
-        console.error("重置密码失败:", error);
-        alert("重置密码失败");
-      }
-    },
-
-    // ================================
-    // 删除用户
-    // ================================
-    async handleDeleteUser(user) {
-      if (!confirm(`确认注销用户 "${user.username}"？`)) return;
-
-      try {
-        await axios.delete(`/api/admin/users/${user.id}`, {
-          headers: this.getAuthHeaders(),
-        });
-        this.users = this.users.filter((u) => u.id !== user.id);
-        alert(`用户 "${user.username}" 已被删除`);
-      } catch (error) {
-        console.error("删除用户失败:", error);
-        alert("删除用户失败");
-      }
-    },
-
-    formatDateTime(t) {
-      return new Date(t).toLocaleString();
-    },
-  },
-};
-</script>
+      router.push("/login"); // this.$router 变成了 router
+  }
+  </script>
+  
 
 <style scoped>
   /* ========== 导航栏样式（从 home 复制） ========== */
