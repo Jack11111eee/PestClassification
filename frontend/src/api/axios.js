@@ -1,13 +1,7 @@
-// frontend/src/api/axios.js
-
 import axios from 'axios'
 
 const instance = axios.create({
-  // === 关键修改 #3：使用相对路径代理 ===
-  // 旧的错误代码: baseURL: 'http://127.0.0.1:5000/api/',
-  // 新的正确代码:
   baseURL: '/api',
-  
   timeout: 5000
 })
 

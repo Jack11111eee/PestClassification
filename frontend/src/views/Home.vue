@@ -54,11 +54,11 @@
 
         <div class="result-display">
           <img
-            :src="backendUrl + results[currentIndex].image_url"
+            :src="results[currentIndex].preview_url"
             class="preview-image"
           />
           <p class="result-text">
-            识别结果：{{ results[currentIndex].class_name }}（置信度：
+            识别结果：{{ translateClassName(results[currentIndex].class_name) }}（置信度：
             {{ (results[currentIndex].confidence * 100).toFixed(2) }}%）
           </p>
 
@@ -124,26 +124,99 @@ function logout() {
   router.push("/login");
 }
 
+// 翻译函数 前端的中英文映射
+const translationMap = {
+  'Apple_Black_Rot': '苹果黑腐病',
+  'Apple_Cedar_Apple_Rust': '苹果雪松锈病',
+  'Apple_healthy': '苹果-健康',
+  'Apple_Scab': '苹果黑星病',
+  'Blueberry_healthy': '蓝莓-健康',
+  'Cherry_healthy': '樱桃-健康',
+  'Cherry_Powdery_Mildew': '樱桃白粉病',
+  'Corn_Common_Rust': '玉米普通锈病',
+  'Corn_Gray_Leaf_Spot': '玉米灰斑病',
+  'Corn_healthy': '玉米-健康',
+  'Corn_Northern_Leaf_Blight': '玉米大斑病',
+  'Grape_Black_Rot': '葡萄黑腐病',
+  'Grape_Esca_Black_Measles': '葡萄埃斯卡病',
+  'Grape_healthy': '葡萄-健康',
+  'Grape_Leaf_Blight_Isariopsis': '葡萄叶枯病',
+  'Orange_Haunglongbing_Citrus_Greening': '柑橘黄龙病',
+  'Peach_Bacterial_Spot': '桃细菌性斑点病',
+  'Peach_healthy': '桃-健康',
+  'Pepper_Bell_Bacterial_Spot': '甜椒细菌性斑点病',
+  'Pepper_Bell_healthy': '甜椒-健康',
+  'Potato_Early_Blight': '马铃薯早疫病',
+  'Potato_healthy': '马铃薯-健康',
+  'Potato_Late_Blight': '马铃薯晚疫病',
+  'Raspberry_healthy': '树莓-健康',
+  'Soybean_healthy': '大豆-健康',
+  'Squash_Powdery_Mildew': '南瓜白粉病',
+  'Strawberry_healthy': '草莓-健康',
+  'Strawberry_Leaf_Scorch': '草莓叶焦病',
+  'Tomato_Bacterial_Spot': '番茄细菌性斑点病',
+  'Tomato_Early_Blight': '番茄早疫病',
+  'Tomato_healthy': '番茄-健康',
+  'Tomato_Late_Blight': '番茄晚疫病',
+  'Tomato_Leaf_Mold': '番茄叶霉病',
+  'Tomato_Mosaic_Virus': '番茄花叶病毒病',
+  'Tomato_Septoria_Leaf_Spot': '番茄Septoria叶斑病',
+  'Tomato_Target_Spot': '番茄靶斑病',
+  'Tomato_Two_Spotted_Spider_Mite': '番茄二斑叶螨',
+  'Tomato_Yellow_Leaf_Curl_Virus': '番茄黄化曲叶病毒病',
+  'Wheat_Crown_and_Root_Rot': '小麦冠根腐病',
+  'Wheat_healthy': '小麦-健康',
+  'Wheat_Leaf_Rust': '小麦叶锈病',
+  'Wheat_Loose_Smut': '小麦散黑穗病'
+};
+
+function translateClassName(englishName) {
+  // 尝试在字典里查找，如果找到了就返回中文，找不到就返回原始英文名
+  return translationMap[englishName] || englishName;
+}
+
 // ===================== 上传图片并识别 =====================
-const backendUrl = "http://127.0.0.1:5000";
 const selectedFiles = ref([]);
+const previewUrls = ref([]); // <--- 新增：用于存储所有文件的预览URL
 const results = ref([]);
 const currentIndex = ref(0);
 
+// 修改 handleFiles 函数
 function handleFiles(e) {
-  selectedFiles.value = Array.from(e.target.files);
+  // 清空旧数据
+  selectedFiles.value = [];
+  results.value = [];
+  
+  // 释放之前可能创建的URL，防止内存泄漏
+  previewUrls.value.forEach(url => URL.revokeObjectURL(url));
+  previewUrls.value = [];
+
+  const files = Array.from(e.target.files);
+  if (files.length > 0) {
+    selectedFiles.value = files;
+    // 为每一个选中的文件创建预览URL
+    previewUrls.value = files.map(file => URL.createObjectURL(file));
+  }
 }
 
 async function uploadImages() {
   const form = new FormData();
-  selectedFiles.value.forEach((file) => form.append("images", file));
-
+  selectedFiles.value.forEach((file) => form.append("images", file)); // 注意：你的后端需要能处理多文件，字段名要对应
   try {
-    const res = await axios.post(`/test/upload`, form, { // baseURL 已配置，可以省略
+    // 假设你的后端接口能处理多文件并按顺序返回结果
+    const res = await axios.post(`/test/upload`, form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
-    results.value = res.data.results;
-    currentIndex.value = 0;
+    // --- 关键修改在这里 ---
+    // res.data.results 是后端返回的识别结果数组
+    // previewUrls.value 是我们前端自己生成的预览URL数组
+    // 我们将它们合并成一个新的、更完整的结果数组
+    results.value = res.data.results.map((result, index) => {
+      return {
+        ...result, // 包含后端返回的 class_name, confidence 等
+        preview_url: previewUrls.value[index] // <--- 新增：添加我们自己的预览URL
+      };
+    });
   } catch(error) {
     console.error("上传失败:", error);
     alert("图片上传或识别失败，请稍后重试。");
@@ -187,16 +260,16 @@ async function saveLabel() {
   }
 }
 </script>
-
 <style scoped>
-/* 你的样式保持不变 */
+/* ========== 顶部导航 ========== */
 header {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   background-color: #42b983;
-  padding: 10px 0;
+  padding: 14px 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   z-index: 1000;
 }
 
@@ -204,138 +277,177 @@ nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 28px;
 }
 
 .nav-left {
   display: flex;
-  gap: 20px;
-}
-/* 确保 router-link 样式和 a 标签一致 */
-.nav-left a, .nav-left .router-link-active {
-  color: white;
-  text-decoration: none;
-  font-weight: bold;
-  font-size: 16px;
+  gap: 24px;
 }
 
-.nav-left a:hover, .nav-left .router-link-active:hover {
-  text-decoration: underline;
+.nav-left a,
+.nav-left .router-link-active {
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 17px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: 0.2s;
+}
+
+.nav-left a:hover,
+.nav-left .router-link-active:hover {
+  background-color: rgba(255,255,255,0.18);
 }
 
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   color: white;
-}
-
-.nav-right p {
-  margin: 0;
-  font-size: 14px;
 }
 
 .nav-right button {
-  background-color: #42b983;
-  color: white;
+  background-color: white;
+  color: #42b983;
   border: none;
-  padding: 0.4rem 0.8rem;
+  padding: 0.45rem 1rem;
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.9rem;
+  font-weight: 600;
+  transition: 0.2s;
 }
 
 .nav-right button:hover {
-  background-color: #369e6f;
+  background-color: #e8f8f0;
 }
 
+/* ========== 页面主体 ========== */
 .content {
+  margin-top: 110px;
   text-align: center;
-  margin-top: 100px; /* 留出固定导航栏的高度 */
+  padding: 0 20px;
 }
 
-/* ... 页面其余部分的样式保持不变 ... */
+h2 {
+  font-size: 26px;
+  margin-bottom: 6px;
+}
+
+hr {
+  margin: 30px auto;
+  width: 80%;
+  border: 0;
+  border-top: 1px solid #ccc;
+}
+
+/* ========== 上传卡片 ========== */
 .upload-section {
-  margin: 20px 0;
+  margin: 30px auto;
+  width: 380px;
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+}
+
+.upload-section h3 {
+  margin-bottom: 12px;
+  font-size: 20px;
 }
 
 .upload-section input {
-  margin-bottom: 10px;
+  margin: 10px 0;
 }
 
 .upload-section button {
-  margin-left: 10px;
-  padding: 0.4rem 1rem;
-  border: none;
   background-color: #42b983;
   color: white;
-  border-radius: 5px;
+  border: none;
+  padding: 0.45rem 1.2rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
   cursor: pointer;
+  transition: 0.2s;
 }
 
 .upload-section button:hover {
   background-color: #369e6f;
 }
 
+/* ========== 结果区域 ========== */
 .results-section {
-  margin-top: 30px;
+  margin-top: 40px;
 }
 
 .result-display {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  width: 420px;
+  margin: 20px auto;
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.12);
 }
 
 .preview-image {
-  max-width: 300px;
+  max-width: 320px;
   border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 }
 
 .result-text {
   font-size: 1.1rem;
   font-weight: bold;
+  margin-bottom: 14px;
 }
 
+/* 分页按钮 */
 .pagination {
   margin-bottom: 10px;
 }
 
 .pagination button {
-  margin: 0 5px;
-  padding: 0.3rem 0.8rem;
+  padding: 0.35rem 0.9rem;
   border: none;
+  border-radius: 6px;
   background-color: #42b983;
   color: white;
-  border-radius: 5px;
   cursor: pointer;
+  transition: 0.2s;
+}
+
+.pagination button:hover {
+  background-color: #369e6f;
 }
 
 .pagination button:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
+  background-color: #bbb;
 }
 
+/* 标签选择 */
 .label-selection {
-  margin-top: 10px;
+  margin-top: 16px;
 }
 
 .label-selection select {
-  padding: 0.3rem 0.6rem;
-  border-radius: 5px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
   border: 1px solid #ccc;
-  margin-right: 10px;
+  margin-right: 12px;
+  min-width: 160px;
 }
 
 .label-selection button {
-  padding: 0.3rem 0.8rem;
+  padding: 0.4rem 1rem;
   border: none;
   background-color: #42b983;
   color: white;
-  border-radius: 5px;
+  border-radius: 6px;
   cursor: pointer;
+  transition: 0.2s;
 }
 
 .label-selection button:hover {
@@ -344,6 +456,5 @@ nav {
 
 .label-selection button:disabled {
   background-color: #ccc;
-  cursor: not-allowed;
 }
 </style>

@@ -3,7 +3,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Login from './views/Login.vue'
 import Register from './views/Register.vue'
 import Home from './views/Home.vue'
-// ++ 1. 导入新的 "我的提交" 组件 ++
 import MySubmissions from './views/MySubmissions.vue'
 import AdminUsers from './views/AdminUsers.vue';
 
@@ -11,7 +10,6 @@ const routes = [
   { path: '/', component: Login },
   { path: '/login', component: Login },
   { path: '/register', component: Register },
-  // 我们也为 Home 页面添加 meta 标记，因为它通常也需要登录
   { path: '/home', component: Home, meta: { requiresAuth: true } }, 
 
   // 这是你已有的管理员路由

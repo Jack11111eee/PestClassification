@@ -1,5 +1,27 @@
 <!-- frontend/src/views/MySubmissions.vue -->
 <template>
+  <header>
+      <nav>
+        <div class="nav-left">
+          <!-- 为了单页应用体验，将 a href 改为 router-link to -->
+          <router-link to="/home">主页</router-link>
+          
+          <!-- ++ 1. 在这里添加新链接 ++ -->
+          <router-link to="/my-submissions">我的提交</router-link>
+
+          <!-- 管理员链接保持不变 -->
+          <router-link v-if="user?.role === 'admin'" to="/admin/detections">管理检测记录</router-link>
+
+          <router-link v-if="user?.role === 'admin'" to="/admin/users">用户管理</router-link>
+        </div>
+
+        <div class="nav-right">
+          <p>当前用户：{{ user?.username || "未登录" }}</p>
+          <button @click="logout">退出登录</button>
+        </div>
+      </nav>
+  </header>
+
   <div class="submissions-container">
     <h1>我的提交历史</h1>
     <div v-if="isLoading" class="loading-spinner">正在加载...</div>
@@ -41,16 +63,46 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-// ++ 修改点 1: 导入你的 axios.js 文件 ++
-// 路径 '@/' 通常指向 'src/' 目录。如果你的 axios.js 在其他地方，请相应修改路径。
 import axios from '../api/axios.js'; 
 
-// --- 响应式变量 ---
 const submissions = ref([]);
 const isLoading = ref(true);
-// ++ 修改点 2: 根据你的 axios.js 配置，硬编码后端图片服务器地址 ++
-// 注意：这里不包含 /api/，因为图片是静态文件，通常从根目录提供
 const backendUrl = 'http://127.0.0.1:5000';
+
+import { useRouter } from "vue-router";
+import { jwtDecode } from "jwt-decode";
+
+const router = useRouter();
+
+// ===================== 用户信息获取 =====================
+const user = ref(null);
+const token = localStorage.getItem("token");
+
+onMounted(() => {
+  if (!token) {
+    // 如果没有token，根据你的路由设置，应该强制跳转到登录
+    router.push("/login");
+    return;
+  };
+
+  try {
+    const decoded = jwtDecode(token);
+    const expired = decoded.exp < Date.now() / 1000;
+    if (!expired) {
+      user.value = {
+        id: decoded.sub,
+        username: decoded.username,
+        role: decoded.role,
+      };
+    } else {
+      // token 过期也应登出
+      logout();
+    }
+  } catch (e) {
+    console.error("Token 解码失败", e);
+    logout(); // 解码失败也登出
+  }
+});
 
 // --- 生命周期钩子 ---
 onMounted(() => {
@@ -105,6 +157,67 @@ function formatDateTime(dateTimeString) {
 </script>
 
 <style scoped>
+  header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background-color: #42b983;
+  padding: 14px 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  z-index: 1000;
+}
+
+nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 28px;
+}
+
+.nav-left {
+  display: flex;
+  gap: 24px;
+}
+
+.nav-left a,
+.nav-left .router-link-active {
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 17px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: 0.2s;
+}
+
+.nav-left a:hover,
+.nav-left .router-link-active:hover {
+  background-color: rgba(255,255,255,0.18);
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: white;
+}
+
+.nav-right button {
+  background-color: white;
+  color: #42b983;
+  border: none;
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+.nav-right button:hover {
+  background-color: #e8f8f0;
+}
 /* 样式代码与之前相同，保持不变 */
 .submissions-container {
   max-width: 1200px;
