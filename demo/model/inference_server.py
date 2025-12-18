@@ -23,19 +23,37 @@ app = Flask(__name__)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # --- 1. 类别定义 (必须与训练时一致) ---
-CLASS_NAMES = [
-    'Apple_Black_Rot', 'Apple_Cedar_Apple_Rust', 'Apple_healthy', 'Apple_Scab', 'Blueberry_healthy',
-    'Cherry_healthy', 'Cherry_Powdery_Mildew', 'Corn_Common_Rust', 'Corn_Gray_Leaf_Spot', 'Corn_healthy',
-    'Corn_Northern_Leaf_Blight', 'Grape_Black_Rot', 'Grape_Esca_Black_Measles', 'Grape_healthy',
-    'Grape_Leaf_Blight_Isariopsis', 'Orange_Haunglongbing_Citrus_Greening', 'Peach_Bacterial_Spot',
-    'Peach_healthy', 'Pepper_Bell_Bacterial_Spot', 'Pepper_Bell_healthy', 'Potato_Early_Blight',
-    'Potato_healthy', 'Potato_Late_Blight', 'Raspberry_healthy', 'Soybean_healthy', 'Squash_Powdery_Mildew',
-    'Strawberry_healthy', 'Strawberry_Leaf_Scorch', 'Tomato_Bacterial_Spot', 'Tomato_Early_Blight',
-    'Tomato_healthy', 'Tomato_Late_Blight', 'Tomato_Leaf_Mold', 'Tomato_Mosaic_Virus',
-    'Tomato_Septoria_Leaf_Spot', 'Tomato_Target_Spot', 'Tomato_Two_Spotted_Spider_Mite',
-    'Tomato_Yellow_Leaf_Curl_Virus', 'Wheat_Crown_and_Root_Rot', 'Wheat_healthy', 'Wheat_Leaf_Rust',
-    'Wheat_Loose_Smut',
+# CLASS_NAMES = [
+#     'Apple_Black_Rot', 'Apple_Cedar_Apple_Rust', 'Apple_healthy', 'Apple_Scab', 'Blueberry_healthy',
+#     'Cherry_healthy', 'Cherry_Powdery_Mildew', 'Corn_Common_Rust', 'Corn_Gray_Leaf_Spot', 'Corn_healthy',
+#     'Corn_Northern_Leaf_Blight', 'Grape_Black_Rot', 'Grape_Esca_Black_Measles', 'Grape_healthy',
+#     'Grape_Leaf_Blight_Isariopsis', 'Orange_Haunglongbing_Citrus_Greening', 'Peach_Bacterial_Spot',
+#     'Peach_healthy', 'Pepper_Bell_Bacterial_Spot', 'Pepper_Bell_healthy', 'Potato_Early_Blight',
+#     'Potato_healthy', 'Potato_Late_Blight', 'Raspberry_healthy', 'Soybean_healthy', 'Squash_Powdery_Mildew',
+#     'Strawberry_healthy', 'Strawberry_Leaf_Scorch', 'Tomato_Bacterial_Spot', 'Tomato_Early_Blight',
+#     'Tomato_healthy', 'Tomato_Late_Blight', 'Tomato_Leaf_Mold', 'Tomato_Mosaic_Virus',
+#     'Tomato_Septoria_Leaf_Spot', 'Tomato_Target_Spot', 'Tomato_Two_Spotted_Spider_Mite',
+#     'Tomato_Yellow_Leaf_Curl_Virus', 'Wheat_Crown_and_Root_Rot', 'Wheat_healthy', 'Wheat_Leaf_Rust',
+#     'Wheat_Loose_Smut',
+# ]
+# CLASS_NAMES.sort()
+raw_classes = [
+    'Apple_Black_Rot', 'Apple_Cedar_Apple_Rust', 'Apple_healthy', 'Apple_Scab', 
+    'Blueberry_healthy', 'Cherry_healthy', 'Cherry_Powdery_Mildew', 
+    'Corn_Common_Rust', 'Corn_Gray_Leaf_Spot', 'Corn_healthy', 
+    'Corn_Northern_Leaf_Blight', 'Grape_Black_Rot', 'Grape_Esca_Black_Measles', 
+    'Grape_healthy', 'Grape_Leaf_Blight_Isariopsis', 'Orange_Haunglongbing_Citrus_Greening', 
+    'Peach_Bacterial_Spot', 'Peach_healthy', 'Pepper_Bell_Bacterial_Spot', 
+    'Pepper_Bell_healthy', 'Potato_Early_Blight', 'Potato_healthy', 
+    'Potato_Late_Blight', 'Raspberry_healthy', 'Soybean_healthy', 
+    'Squash_Powdery_Mildew', 'Strawberry_healthy', 'Strawberry_Leaf_Scorch', 
+    'Tomato_Bacterial_Spot', 'Tomato_Early_Blight', 'Tomato_healthy', 
+    'Tomato_Late_Blight', 'Tomato_Leaf_Mold', 'Tomato_Mosaic_Virus', 
+    'Tomato_Septoria_Leaf_Spot', 'Tomato_Target_Spot', 'Tomato_Two_Spotted_Spider_Mite', 
+    'Tomato_Yellow_Leaf_Curl_Virus', 'Wheat_Crown_and_Root_Rot', 'Wheat_healthy', 
+    'Wheat_Leaf_Rust', 'Wheat_Loose_Smut'
 ]
+CLASS_NAMES = sorted(raw_classes)
 NUM_CLASSES = len(CLASS_NAMES)
 
 # --- 2. 加载模型 (Global Loading) ---
