@@ -21,3 +21,4 @@ export function resetUserPassword(id, password) {
 export function deleteUser(id) {
   return api.delete(`/api/admin/users/${id}`)
 }
+

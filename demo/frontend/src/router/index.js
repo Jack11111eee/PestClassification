@@ -4,6 +4,7 @@ import Register from '@/views/Register.vue'
 import Test from '@/views/Test.vue'
 import Admin from '@/views/Admin.vue'
 import Audit from '@/views/Audit.vue'
+import MyRecords from '@/views/MyRecords.vue'
 
 const routes = [
   { path: '/', redirect: '/login' },
@@ -11,8 +12,10 @@ const routes = [
   { path: '/register', component: Register },
   { path: '/test',component:Test},
   { path: '/user_manage',component:Admin},
-  { path: '/audit',component: Audit}
+  { path: '/audit',component: Audit},
+  { path: '/my_submission',component:MyRecords}
 ]
+
 
 const router = createRouter({
   history: createWebHistory(),
