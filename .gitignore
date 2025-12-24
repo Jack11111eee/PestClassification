@@ -235,3 +235,4 @@ yarn-error.log*
 #临时文件夹
 uploads/
 test_images/
+feedback_data/

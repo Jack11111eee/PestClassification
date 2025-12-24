@@ -1,4 +1,3 @@
-# inference_server_manual.py
 import os
 import io
 import uuid
@@ -12,24 +11,23 @@ from torchvision.models import resnet50
 from flask import Flask, request, jsonify
 from PIL import Image
 import time
+import sys
 
 # ================= 1. 全局配置 =================
-# 基础路径
 BASE_DIR = '/home/hzcu/repo/modelStaff'
+# 权重路径
 MODEL_PATH = os.path.join(BASE_DIR, 'ResNet50_v1.pth')      
 BEST_MODEL_PATH = os.path.join(BASE_DIR, 'ResNet50_best.pth') 
+# 数据路径
 FEEDBACK_DIR = os.path.join(BASE_DIR, 'feedback_data')        
 ARCHIVE_DIR = os.path.join(BASE_DIR, 'archived_feedback')     
-
-# 原始数据集路径
 ORIGINAL_DATASET_DIR = '/home/hzcu/PlantDiseases_Final_Split' 
 
-# 阈值配置
-RETRAIN_THRESHOLD = 5  # 达到这个数后，提示管理员可以训练了
+RETRAIN_THRESHOLD = 100
 PORT = 5001
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 类别定义 (42类)
+# 类别定义 (必须与训练时严格一致)
 raw_classes = [
     'Apple_Black_Rot', 'Apple_Cedar_Apple_Rust', 'Apple_healthy', 'Apple_Scab', 
     'Blueberry_healthy', 'Cherry_healthy', 'Cherry_Powdery_Mildew', 
@@ -49,77 +47,103 @@ raw_classes = [
 CLASS_NAMES = sorted(raw_classes)
 NUM_CLASSES = len(CLASS_NAMES)
 
-# 状态标志位
 IS_TRAINING = False 
 
-# ================= 2. 模型初始加载 =================
 app = Flask(__name__)
 
+# ================= 2. 模型结构与加载 =================
+
 def load_network_structure():
+    """构造resnet50并在最后全连接层匹配类别数"""
     net = resnet50(weights=None)
     num_ftrs = net.fc.in_features
     net.fc = torch.nn.Linear(num_ftrs, NUM_CLASSES)
     return net
 
-print(f"🔄 初始化加载模型...")
-model = load_network_structure()
-current_weights = BEST_MODEL_PATH if os.path.exists(BEST_MODEL_PATH) else MODEL_PATH
-try:
-    model.load_state_dict(torch.load(current_weights, map_location=DEVICE))
-    model.to(DEVICE)
-    model.eval()
-    print(f"✅ 模型加载成功: {current_weights}")
-except Exception as e:
-    print(f"❌ 模型加载失败: {e}")
+def init_model():
+    """初始化模型加载，如果权重加载失败直接停止程序"""
+    net = load_network_structure()
+    
+    # 优先加载重训练后的最优模型，否则加载初始模型
+    if os.path.exists(BEST_MODEL_PATH):
+        weights_to_load = BEST_MODEL_PATH
+        print(f"📈 发现重训练权重: {BEST_MODEL_PATH}")
+    else:
+        weights_to_load = MODEL_PATH
+        print(f"📦 加载初始权重: {MODEL_PATH}")
 
-# 预处理
+    if not os.path.exists(weights_to_load):
+        print(f"❌ 严重错误: 找不到任何权重文件于 {weights_to_load}")
+        sys.exit(1)
+
+    try:
+        # strict=True 保证网络层必须完全匹配
+        state_dict = torch.load(weights_to_load, map_location=DEVICE)
+        net.load_state_dict(state_dict, strict=True)
+        net.to(DEVICE)
+        net.eval()
+        print(f"✅ 模型加载成功！当前设备: {DEVICE}")
+        return net
+    except Exception as e:
+        print(f"🚨 权重加载失败(可能是类别数不匹配): {e}")
+        sys.exit(1)
+
+# 全局初始化
+model = init_model()
+
+# 预处理保持与训练一致 (ImageNet标准)
 inference_transform = T.Compose([
-    T.Resize(256),T.CenterCrop(224),T.ToTensor(),
-    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
-train_transform = T.Compose([
-    T.RandomResizedCrop(224),T.RandomHorizontalFlip(),T.ToTensor(),
+    T.Resize(256),
+    T.CenterCrop(224),
+    T.ToTensor(),
     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-# ================= 3. 辅助函数 =================
+train_transform = T.Compose([
+    T.RandomResizedCrop(224),
+    T.RandomHorizontalFlip(),
+    T.ToTensor(),
+    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# ================= 3. 辅助功能 =================
 
 def get_feedback_count():
-    """统计当前反馈池的图片数量"""
     count = 0
     for root, dirs, files in os.walk(FEEDBACK_DIR):
         count += len([f for f in files if f.endswith(('.jpg', '.png', '.jpeg'))])
     return count
 
 def train_task_thread():
-    """后台训练线程函数 - 逻辑不变"""
     global IS_TRAINING, model
-    print("\n🚀 [Background] 管理员已触发重训练任务 started...")
+    print("\n🚀 后台训练任务开始...")
     IS_TRAINING = True
     
     try:
-        # A. 准备数据
+        # A. 检查数据
+        if not os.path.exists(ORIGINAL_DATASET_DIR):
+            print(f"❌ 错误: 原始训练集目录不存在 {ORIGINAL_DATASET_DIR}")
+            return
+
         original_dataset = datasets.ImageFolder(ORIGINAL_DATASET_DIR, transform=train_transform)
         feedback_dataset = datasets.ImageFolder(FEEDBACK_DIR, transform=train_transform)
         combined_dataset = ConcatDataset([original_dataset, feedback_dataset])
-        train_loader = DataLoader(combined_dataset, batch_size=16, shuffle=True, num_workers=0) 
         
-        # B. 准备模型
+        # 建议 batch_size 不要太大
+        train_loader = DataLoader(combined_dataset, batch_size=32, shuffle=True, num_workers=4) 
+        
+        # B. 准备模型（在当前权重基础上继续练）
         new_model = load_network_structure()
         new_model.load_state_dict(model.state_dict())
         new_model.to(DEVICE)
         new_model.train()
 
         criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(new_model.parameters(), lr=0.0001)
+        optimizer = torch.optim.Adam(new_model.parameters(), lr=0.00001) # 用更小的学习率防止破坏权重
 
-        print(f"📉 [Background] 开始训练，总数据量: {len(combined_dataset)}...")
-        
-        # C. 训练循环
         EPOCHS = 3
         for epoch in range(EPOCHS):
             running_loss = 0.0
-            steps = 0
             for inputs, labels in train_loader:
                 inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
                 optimizer.zero_grad()
@@ -128,143 +152,101 @@ def train_task_thread():
                 loss.backward()
                 optimizer.step()
                 running_loss += loss.item()
-                steps += 1
-            print(f"✅ [Epoch {epoch+1} Done] Avg Loss: {running_loss/steps:.4f}")
+            print(f"   Epoch {epoch+1}/{EPOCHS} - Loss: {running_loss/len(train_loader):.4f}")
 
-        # D. 保存
+        # C. 保存与同步
         torch.save(new_model.state_dict(), BEST_MODEL_PATH)
-        print(f"💾 [Background] 新模型已保存至: {BEST_MODEL_PATH}")
-
-        # E. 热更新
         model.load_state_dict(new_model.state_dict())
         model.eval()
-        print("🔄 [Background] 全局模型热更新完成！")
 
-        # F. 归档
-        timestamp = int(time.time())
-        archive_dest = os.path.join(ARCHIVE_DIR, str(timestamp))
+        # D. 归档数据
+        archive_dest = os.path.join(ARCHIVE_DIR, str(int(time.time())))
         shutil.move(FEEDBACK_DIR, archive_dest)
         os.makedirs(FEEDBACK_DIR, exist_ok=True)
-        print(f"📦 [Background] 反馈数据已归档至 {archive_dest}")
+        print(f"📦 训练完成，模型已更新，反馈数据已归档。")
 
     except Exception as e:
-        print(f"❌ [Background] 训练任务出错: {e}")
-        import traceback
-        traceback.print_exc()
-    
+        print(f"❌ 训练任务失败: {e}")
     finally:
         IS_TRAINING = False
-        print("🏁 [Background] 训练任务结束。\n")
 
 # ================= 4. API 路由 =================
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """预测接口 (已清理冗余代码)"""
-    if 'file' not in request.files: return jsonify({'error': 'No file part'}), 400
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
     file = request.files['file']
-    if file.filename == '': return jsonify({'error': 'No selected file'}), 400
-
+    
     try:
-        img_bytes = file.read()
-        image = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        image = Image.open(io.BytesIO(file.read())).convert('RGB')
         img_tensor = inference_transform(image).unsqueeze(0).to(DEVICE)
         
         with torch.no_grad():
             outputs = model(img_tensor)
+            # 调试：打印原始 Logits，观察是否某一项特别突出
+            # print(f"Logits: {outputs.cpu().numpy()}") 
+            
             probabilities = torch.nn.functional.softmax(outputs, dim=1)
             confidence, predicted_idx = torch.max(probabilities, 1)
 
         result_class = CLASS_NAMES[predicted_idx.item()]
-        confidence_score = float(confidence.item())
+        conf_score = confidence.item()
+
+        print(f"🔍 预测结果: {result_class} (置信度: {conf_score:.4f})")
 
         return jsonify({
             'prediction': {
                 'class_name': result_class,
-                'confidence': float(f"{confidence_score:.4f}")
+                'confidence': float(f"{conf_score:.4f}")
             },
             'status': 'success'
         })
     except Exception as e:
-        print(f"Prediction Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/feedback', methods=['POST'])
 def save_feedback():
-    """
-    接收反馈 -> 保存图片 -> 返回当前是否达到训练条件
-    注意：这里不再自动触发训练！
-    """
     if 'file' not in request.files or 'correct_label' not in request.form:
-        return jsonify({"error": "Missing info"}), 400
+        return jsonify({"error": "Missing parameter"}), 400
+
     file = request.files['file']
-    correct_label = request.form['correct_label']
-    if correct_label not in CLASS_NAMES:
-        return jsonify({"error": "Invalid label"}), 400
+    label = request.form['correct_label']
+    
+    if label not in CLASS_NAMES:
+        return jsonify({"error": f"Invalid label: {label}"}), 400
 
     try:
-        label_dir = os.path.join(FEEDBACK_DIR, correct_label)
+        label_dir = os.path.join(FEEDBACK_DIR, label)
         os.makedirs(label_dir, exist_ok=True)
-        filename = f"{uuid.uuid4()}.jpg"
-        file.save(os.path.join(label_dir, filename))
+        file.save(os.path.join(label_dir, f"{uuid.uuid4()}.jpg"))
         
-        # 统计数量
         count = get_feedback_count()
-        ready_to_train = count >= RETRAIN_THRESHOLD
-        
-        msg = f"Feedback saved. Total images: {count}"
-        if ready_to_train:
-            msg += " (Threshold reached! Waiting for admin to start training.)"
-            
         return jsonify({
             "status": "success", 
-            "message": msg, 
             "current_count": count,
-            "threshold": RETRAIN_THRESHOLD,
-            "ready_to_train": ready_to_train  # 前端通过这个字段判断是否让按钮变绿
+            "ready_to_train": count >= RETRAIN_THRESHOLD
         })
-        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# [NEW] 新增的手动触发接口
 @app.route('/retrain', methods=['POST'])
 def manual_retrain():
-    """
-    管理员手动调用此接口开始训练
-    """
-    if IS_TRAINING:
-        return jsonify({"status": "error", "message": "Training is already in progress!"}), 409
+    if IS_TRAINING: return jsonify({"error": "Training in progress"}), 409
+    if get_feedback_count() == 0: return jsonify({"error": "No data"}), 400
     
-    count = get_feedback_count()
-    
-    # 你可以选择强制检查阈值，也可以允许管理员强制跑 (这里我写了逻辑允许强制跑，但给出警告)
-    if count == 0:
-        return jsonify({"status": "error", "message": "No feedback data to train on."}), 400
-        
-    # 启动后台线程
-    t = threading.Thread(target=train_task_thread)
-    t.start()
-    
-    return jsonify({
-        "status": "success", 
-        "message": "Retraining task started in background.",
-        "data_count": count
-    })
+    threading.Thread(target=train_task_thread).start()
+    return jsonify({"message": "Retraining started"})
 
 @app.route('/status', methods=['GET'])
 def server_status():
-    """查看状态"""
-    count = get_feedback_count()
     return jsonify({
         "is_training": IS_TRAINING,
-        "feedback_count": count,
-        "feedback_threshold": RETRAIN_THRESHOLD,
-        "ready_to_train": count >= RETRAIN_THRESHOLD
+        "feedback_count": get_feedback_count(),
+        "device": str(DEVICE)
     })
 
 if __name__ == '__main__':
     os.makedirs(FEEDBACK_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
-    print(f"🚀 AI Server (Manual Trigger) starting on port {PORT}...")
+    print(f"🚀 AI Server 运行于端口 {PORT}...")
     app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
