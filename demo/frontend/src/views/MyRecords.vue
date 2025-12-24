@@ -27,12 +27,16 @@
       <button
         v-if="user"
         @click="router.push('/my_submission')"
-        class="active"
-      >
-        我的提交记录
+        class="active">我的提交记录
       </button>
+
+      <div v-if="user" class="user-info">
+        <span>你好，{{ user.username }}</span>
+        <button @click="logout">退出</button>
+      </div>
     </div>
 
+    
     <!-- ================= 标题 + 筛选按钮 ================= -->
     <h2 class="title">
       我的提交记录
@@ -140,7 +144,7 @@ const loadMyRecords = async () => {
     return
   }
 
-  const res = await axios.get('http://localhost:9000/api/record/my', {
+  const res = await axios.get('http://10.61.190.21:9000/api/record/my', {
     params: { username }
   })
 
@@ -180,7 +184,7 @@ const resetFilter = () => {
 /* ================= 工具函数 ================= */
 const getImageUrl = (path) => {
   const filename = path.substring(path.lastIndexOf('/') + 1)
-  return `http://localhost:9000/uploads/${filename}`
+  return `http://10.61.190.21:9000/uploads/${filename}`
 }
 
 const statusText = (status) => {
@@ -200,8 +204,7 @@ const formatTime = (timeStr) => {
 
 <style scoped>
 .container {
-  width: 95%;
-  margin: 20px auto;
+  padding: 20px;
 }
 
 /* 顶部导航 */
@@ -245,6 +248,10 @@ const formatTime = (timeStr) => {
 .filter-panel input,
 .filter-panel select {
   padding: 4px 6px;
+}
+
+.user-info {
+  margin-left: auto;
 }
 </style>
 
