@@ -31,6 +31,11 @@
       >
         我的提交记录
       </button>
+
+      <div v-if="user" class="user-info">
+        <span>你好，{{ user.username }}</span>
+        <button @click="logout">退出</button>
+      </div>
     </div>
 
     <!-- ================= 工具栏 ================= -->
@@ -176,7 +181,7 @@ onMounted(() => {
 
 /* ================= 加载数据 ================= */
 const loadRecords = async () => {
-  const res = await axios.get('http://localhost:9000/api/record/all')
+  const res = await axios.get('http://10.61.190.21:9000/api/record/all')
   records.value = res.data
 }
 
@@ -242,7 +247,7 @@ const rejectReason = ref('')
 const currentItem = ref(null)
 
 const approve = async (item) => {
-  await axios.put(`http://localhost:9000/api/record/audit/${item.id}`, {
+  await axios.put(`http://10.61.190.21:9000/api/record/audit/${item.id}`, {
     status: 'APPROVED',
     information: '同意'
   })
@@ -259,7 +264,7 @@ const submitReject = async () => {
   if (!rejectReason.value.trim()) return
 
   await axios.put(
-    `http://localhost:9000/api/record/audit/${currentItem.value.id}`,
+    `http://10.61.190.21:9000/api/record/audit/${currentItem.value.id}`,
     {
       status: 'REJECTED',
       information: rejectReason.value
@@ -376,6 +381,9 @@ table {
 .modal-actions {
   text-align: right;
   margin-top: 10px;
+}
+.user-info {
+  margin-left: auto;
 }
 </style>
 

@@ -1,11 +1,52 @@
 <template>
   <div class="container">
+    <!-- ================= 顶部导航 ================= -->
+    <div class="nav-bar">
+      <button
+        v-if="user"
+        @click="$router.push('/test')"
+      >
+        识别系统
+      </button>
+
+      <button
+        v-if="user && user.role === 'admin'"
+        @click="$router.push('/user_manage')"
+        class="active"
+      >
+        用户管理
+      </button>
+
+      <button
+        v-if="user && (user.role === 'admin' || user.role === 'operator')"
+        @click="$router.push('/audit')"
+      >
+        审核模块
+      </button>
+
+      <button
+        v-if="user"
+        @click="$router.push('/my_submission')"
+      >
+        我的提交记录
+      </button>
+
+      <div v-if="user" class="user-info">
+        <span>你好，{{ user.username }}</span>
+        <button @click="logout">退出</button>
+      </div>
+    </div>
+
     <h2>用户管理</h2>
 
-    <!-- 创建用户 -->
+    <!-- ================= 创建用户 ================= -->
     <div class="create-box">
       <input v-model="newUser.username" placeholder="用户名" />
-      <input v-model="newUser.password" type="password" placeholder="密码" />
+      <input
+        v-model="newUser.password"
+        type="password"
+        placeholder="密码"
+      />
       <select v-model="newUser.role">
         <option value="user">user</option>
         <option value="operator">operator</option>
@@ -14,7 +55,7 @@
       <button @click="submitCreateUser">创建用户</button>
     </div>
 
-    <!-- 用户列表 -->
+    <!-- ================= 用户列表 ================= -->
     <table border="1" cellspacing="0">
       <thead>
         <tr>
@@ -26,13 +67,13 @@
       </thead>
 
       <tbody>
-        <tr v-for="(user, index) in users" :key="user.id">
+        <tr v-for="(u, index) in users" :key="u.id">
           <td>{{ index + 1 }}</td>
-          <td>{{ user.username }}</td>
-          <td>{{ user.role }}</td>
+          <td>{{ u.username }}</td>
+          <td>{{ u.role }}</td>
           <td>
-            <button @click="resetPwd(user.id)">重置密码</button>
-            <button class="danger" @click="removeUser(user.id)">
+            <button @click="resetPwd(u.id)">重置密码</button>
+            <button class="danger" @click="removeUser(u.id)">
               注销
             </button>
           </td>
@@ -55,6 +96,8 @@ export default {
 
   data() {
     return {
+      user: null, // ✅ 关键：导航栏依赖的当前登录用户
+
       users: [],
       newUser: {
         username: '',
@@ -65,6 +108,12 @@ export default {
   },
 
   mounted() {
+    // ✅ 从 localStorage 读取登录用户
+    const u = localStorage.getItem('user')
+    if (u) {
+      this.user = JSON.parse(u)
+    }
+
     this.loadUsers()
   },
 
@@ -75,7 +124,7 @@ export default {
       this.users = res.data
     },
 
-    // 创建用户（注意：不和 API 同名）
+    // 创建用户
     async submitCreateUser() {
       if (!this.newUser.username || !this.newUser.password) {
         alert('请输入用户名和密码')
@@ -118,6 +167,24 @@ export default {
   padding: 20px;
 }
 
+/* 顶部导航 */
+.nav-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.nav-bar button {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.nav-bar .active {
+  background: #409eff;
+  color: #fff;
+}
+
+/* 创建用户 */
 .create-box {
   margin-bottom: 20px;
 }
@@ -127,6 +194,7 @@ export default {
   margin-right: 8px;
 }
 
+/* 表格 */
 table {
   width: 100%;
 }
@@ -142,5 +210,7 @@ td {
   background-color: #e74c3c;
   color: white;
 }
+.user-info {
+  margin-left: auto;
+}
 </style>
-

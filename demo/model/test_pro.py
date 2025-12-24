@@ -4,7 +4,7 @@ import time
 import os
 
 # 配置
-BASE_URL = "http://localhost:5002"
+BASE_URL = "http://10.61.190.21:5002"
 TEST_TASK_ID = "test_task_" + str(int(time.time()))
 # !!! 请修改这里为你服务器上真实存在的、有图片的文件夹 !!!
 TEST_FOLDER = "/home/hzcu/repo/demo/model/test_images" 
