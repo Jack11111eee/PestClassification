@@ -12,6 +12,9 @@ from flask import Flask, request, jsonify
 from PIL import Image
 import time
 import sys
+import base64
+import numpy as np
+import cv2
 
 # 尝试导入 GPU 监控库 (如果安装失败也不影响主程序运行)
 try:
@@ -117,6 +120,56 @@ train_transform = T.Compose([
     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
+# ================= Grad-CAM 辅助函数 =================
+def generate_gradcam(model, input_tensor, predicted_class):
+    """生成 Grad-CAM 热力图"""
+    # 获取最后一个卷积层的输出
+    final_conv_layer = model.layer4[2]  # ResNet50 的最后一个卷积块
+
+    # 存储梯度和激活
+    gradients = []
+    activations = []
+
+    def forward_hook(module, input, output):
+        activations.append(output)
+
+    def backward_hook(module, grad_input, grad_output):
+        gradients.append(grad_output[0])
+
+    # 注册钩子
+    forward_handle = final_conv_layer.register_forward_hook(forward_hook)
+    backward_handle = final_conv_layer.register_backward_hook(backward_hook)
+
+    # 前向传播
+    output = model(input_tensor)
+    predicted_output = output[0, predicted_class]
+
+    # 反向传播
+    model.zero_grad()
+    predicted_output.backward()
+
+    # 移除钩子
+    forward_handle.remove()
+    backward_handle.remove()
+
+    # 获取梯度和激活
+    gradients = gradients[0][0]  # gradients 是 batch_size x channels x h x w
+    activations = activations[0][0]  # activations 同上
+
+    # 计算 Grad-CAM
+    weights = torch.mean(gradients, dim=[1, 2])  # 全局平均池化得到权重
+    cam = torch.zeros(activations.shape[-2:], dtype=torch.float32)
+
+    for i, w in enumerate(weights):
+        cam += w * activations[i]
+
+    cam = torch.nn.functional.relu(cam)  # ReLU 激活
+    cam = cam - cam.min()
+    cam = cam / cam.max()
+    cam = cam.cpu().data.numpy()
+
+    return cv2.resize(cam, (224, 224))  # 调整到原图大小
+
 # ================= 辅助工具：GPU 监控 =================
 def get_gpu_usage():
     """管理员专用：获取GPU显存和负载"""
@@ -153,7 +206,7 @@ class ImageFolderDataset(Dataset):
             return torch.zeros((3, 224, 224)), "ERROR_FILE"
 
 def run_batch_inference(task_id, folder_path):
-    """后台运行的批量预测逻辑"""
+    """后台运行的批量预测逻辑（批量预测不添加热力图，以保持性能）"""
     print(f"[{task_id}] Thread started for: {folder_path}")
     
     # 1. 扫描文件
@@ -308,19 +361,46 @@ def predict():
     
     try:
         image = Image.open(io.BytesIO(file.read())).convert('RGB')
+        
+        # 保存原始图像用于热力图叠加
+        original_image = np.array(image.resize((224, 224)))  # ResNet 输入是 224x224，但原图调整为匹配
+        
         img_tensor = inference_transform(image).unsqueeze(0).to(DEVICE)
         
-        with torch.no_grad():
-            outputs = model(img_tensor)
-            # 调试：打印原始 Logits，观察是否某一项特别突出
-            # print(f"Logits: {outputs.cpu().numpy()}") 
-            
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            confidence, predicted_idx = torch.max(probabilities, 1)
-
-        result_class = CLASS_NAMES[predicted_idx.item()]
+        # 前向传播计算预测
+        outputs = model(img_tensor)
+        probabilities = torch.nn.functional.softmax(outputs, dim=1)
+        confidence, predicted_idx = torch.max(probabilities, 1)
+        
         conf_score = confidence.item()
-
+        result_class = CLASS_NAMES[predicted_idx.item()]
+        
+        # 低置信度拦截：如果置信度低于 0.6，返回模糊结果
+        if conf_score < 0.6:
+            print(f"🔍 预测结果: 低置信度 - 无法确定 (置信度: {conf_score:.4f})")
+            return jsonify({
+                'prediction': {
+                    'class_name': "无法确定",
+                    'confidence': float(f"{conf_score:.4f}")
+                },
+                'status': 'success',
+                'explanation': {
+                    'message': '模型预测置信度较低，建议重新拍摄更清晰的图像或咨询专家。',
+                    'suggested_actions': ['重新拍摄照片', '使用放大镜', '求助农业专家']
+                }
+            })
+        
+        # 如果置信度足够高，则生成 Grad-CAM 热力图
+        heat_map = generate_gradcam(model, img_tensor, predicted_idx.item())
+        
+        # 叠加热力图到原图
+        heat_map = cv2.applyColorMap(np.uint8(255 * heat_map), cv2.COLORMAP_JET)
+        superimposed_image = cv2.addWeighted(heat_map, 0.4, original_image, 0.6, 0)
+        
+        # 将叠加图像转换为 base64
+        _, buffer = cv2.imencode('.jpg', superimposed_image)
+        heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
+        
         print(f"🔍 预测结果: {result_class} (置信度: {conf_score:.4f})")
 
         return jsonify({
@@ -328,7 +408,12 @@ def predict():
                 'class_name': result_class,
                 'confidence': float(f"{conf_score:.4f}")
             },
-            'status': 'success'
+            'status': 'success',
+            'explanation': {
+                'heatmap_image': f"data:image/jpeg;base64,{heatmap_base64}",
+                'message': f'模型主要关注图像中的高亮区域来识别为“{result_class}”。',
+                'suggested_actions': ['检查高亮区域是否有病斑', '确认环境下状况']
+            }
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -425,5 +510,5 @@ def get_batch_status(task_id):
 if __name__ == '__main__':
     os.makedirs(FEEDBACK_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
-    print(f"🚀 AI Server (Merged) 运行于端口 {PORT}...")
+    print(f"🚀 AI Server (Merged with Confidence Gate and Grad-CAM) 运行于端口 {PORT}...")
     app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
