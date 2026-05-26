@@ -9,7 +9,7 @@ DB_CONFIG = {
     'password': "12138",
     'database': "agri",
     'charset': "utf8mb4",
-    'port': 3407
+    'port': 3306
 }
 
 def get_db_connection():

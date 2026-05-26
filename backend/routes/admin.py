@@ -112,7 +112,11 @@ from flask import current_app, jsonify, request
 # 2. 定义你的 AI 模型后台的地址
 #    如果它们运行在同一台机器但不同端口，就是类似 'http://localhost:5001/feedback'
 #    请根据你的实际部署情况修改
-AI_SERVICE_URL = 'http://127.0.0.1:8000/feedback' 
+AI_SERVICE_URL = os.environ.get(
+    'MODEL_STAFF_FEEDBACK_URL',
+    os.environ.get('AI_FEEDBACK_SERVICE_URL', 'http://127.0.0.1:8001/feedback')
+)
+AI_SERVICE_TIMEOUT = float(os.environ.get('AI_SERVICE_TIMEOUT', '60'))
 
 @admin_bp.route('/process_detection', methods=['POST'])
 def process_detection():
@@ -162,7 +166,12 @@ def process_detection():
                 payload = {'correct_label': correct_label}
                 
                 # 6. 发送 POST 请求到 AI 模型后台
-                response = requests.post(AI_SERVICE_URL, files=files, data=payload)
+                response = requests.post(
+                    AI_SERVICE_URL,
+                    files=files,
+                    data=payload,
+                    timeout=AI_SERVICE_TIMEOUT
+                )
 
                 # 7. 检查 AI 模型后台的响应
                 if response.status_code == 200:

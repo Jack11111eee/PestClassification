@@ -8,7 +8,11 @@ test_bp = Blueprint('test', __name__)
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '../uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-AI_SERVICE_URL = "http://127.0.0.1:8000/predict"
+AI_SERVICE_URL = os.environ.get(
+    "MODEL_STAFF_PREDICT_URL",
+    os.environ.get("AI_SERVICE_URL", "http://127.0.0.1:8001/predict")
+)
+AI_SERVICE_TIMEOUT = float(os.environ.get("AI_SERVICE_TIMEOUT", "60"))
 
 @test_bp.route('/uploads/<path:filename>')
 def uploaded_file(filename):
@@ -21,6 +25,7 @@ def upload_and_predict():
 
     files = request.files.getlist('images')
     results = []
+    errors = []
 
     for file in files:
         if file:
@@ -31,12 +36,25 @@ def upload_and_predict():
             # 转发到 AI 服务
             try:
                 with open(filepath, 'rb') as f:
-                    res = requests.post(AI_SERVICE_URL, files={'file': f})
+                    res = requests.post(
+                        AI_SERVICE_URL,
+                        files={'file': (filename, f, file.mimetype or 'application/octet-stream')},
+                        timeout=AI_SERVICE_TIMEOUT
+                    )
+                res.raise_for_status()
                 res_json = res.json()
-            except Exception as e:
-                res_json = {'error': str(e)}
+            except requests.RequestException as e:
+                errors.append({'filename': filename, 'error': f'AI 服务请求失败: {e}'})
+                continue
+            except ValueError as e:
+                errors.append({'filename': filename, 'error': f'AI 服务返回的不是 JSON: {e}'})
+                continue
 
             prediction_data = res_json.get('prediction', {}) # 使用.get()防止prediction不存在时报错
+            if not prediction_data:
+                errors.append({'filename': filename, 'error': res_json.get('error', 'AI 服务未返回 prediction')})
+                continue
+
             class_name = prediction_data.get('class_name', '未知') # 同样使用.get()
             confidence = prediction_data.get('confidence', 0.0)
             results.append({
@@ -45,4 +63,10 @@ def upload_and_predict():
                 'confidence': confidence       # 直接把 confidence 提出来
             })
 
-    return jsonify({'results': results}), 200
+    payload = {'results': results}
+    if errors:
+        payload['errors'] = errors
+        payload['message'] = '部分或全部图片识别失败'
+        return jsonify(payload), 502
+
+    return jsonify(payload), 200

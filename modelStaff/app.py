@@ -2,6 +2,7 @@
 #  app.py - Flask后端API服务
 # ==============================================================================
 import os
+import socket
 import uuid
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
@@ -37,8 +38,13 @@ chinese_class_names = [
 CH_TO_EN_MAP = dict(zip(chinese_class_names, class_names))
 
 # --- 2. 配置 ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # 设置一个用于临时保存上传文件的文件夹
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = os.environ.get(
+    'MODEL_STAFF_UPLOAD_FOLDER',
+    os.path.join(BASE_DIR, 'uploads')
+)
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -51,15 +57,40 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def parse_port(value, default=8000):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+def port_is_available(host, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+def find_available_port(host, start_port, attempts=20):
+    for port in range(start_port, start_port + attempts):
+        if port_is_available(host, port):
+            return port
+    raise RuntimeError(f"No available port found from {start_port} to {start_port + attempts - 1}")
+
 print("✅ Flask App initialized. Ready to receive requests.")
 # 提示：模型和类别等已经在 predict.py 被导入时加载好了，这里无需重复加载。
 
 # --- 3. 创建API路由 ---
 
 @app.route('/')
+@app.route('/home')
 def index():
     """一个简单的欢迎页面，用于测试服务是否启动"""
     return "<h1>植物病害识别API已启动</h1><p>请使用POST方法向 /predict 接口上传图片。</p>"
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 @app.route('/predict', methods=['POST'])
 def handle_prediction():
@@ -116,7 +147,10 @@ def handle_prediction():
         return jsonify({'error': '文件类型不被允许(file type not allowed)'}), 400
         
 # 创建一个专门存放反馈数据的文件夹
-FEEDBACK_FOLDER = '/home/hzcu/repo/modelStaff/feedback_data'
+FEEDBACK_FOLDER = os.environ.get(
+    'MODEL_STAFF_FEEDBACK_FOLDER',
+    os.path.join(BASE_DIR, 'feedback_data')
+)
 os.makedirs(FEEDBACK_FOLDER, exist_ok=True)
 @app.route('/feedback', methods=['POST'])
 def receive_feedback():
@@ -151,7 +185,14 @@ def receive_feedback():
 # --- 4. 启动服务 ---
 if __name__ == '__main__':
     # host='0.0.0.0' 让服务可以被外部访问
-    # port=5000 是Flask默认端口，可以修改
-    app.run(host='0.0.0.0', port=8000, debug=True)
-    # 注意：debug=True 模式下，每次代码改动服务会自动重启，方便开发。
-    # 真正部署时应设为 debug=False。
+    host = os.environ.get('MODEL_STAFF_HOST', '0.0.0.0')
+    requested_port = parse_port(os.environ.get('MODEL_STAFF_PORT') or os.environ.get('PORT'), 8000)
+    port = find_available_port(host, requested_port)
+    if port != requested_port:
+        print(f"⚠️ Port {requested_port} is already in use; starting on port {port} instead.")
+        print("   Set MODEL_STAFF_PORT to choose a specific port.")
+
+    debug = os.environ.get('MODEL_STAFF_DEBUG', '1').lower() in {'1', 'true', 'yes', 'on'}
+    app.run(host=host, port=port, debug=debug, use_reloader=False)
+    # 模型加载较重，禁用 reloader 避免 debug 模式下重复加载模型。
+    # 真正部署时应设置 MODEL_STAFF_DEBUG=0。
