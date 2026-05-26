@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <header class="nav-bar">
-      <div class="nav-logo">🌾 农医识别系统</div>
+      <div class="nav-logo">🌾基于交互式标注的三大主粮病虫害识别系统</div>
       <div class="nav-links">
         <button v-if="user" @click="router.push('/test')" class="nav-btn active">识别系统</button>
         <button v-if="user?.role === 'admin'" @click="router.push('/user_manage')" class="nav-btn">用户管理</button>
@@ -231,6 +231,7 @@ const getConfClass = (val: number | string) => {
   if (n > 0.8) return 'text-success'
   if (n > 0.5) return 'text-warning'
   return 'text-danger'
+
 }
 </script>
 
