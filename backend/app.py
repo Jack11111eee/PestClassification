@@ -20,8 +20,15 @@ from db import get_db_connection, close_db
 app = Flask(__name__)
 
 # --- 配置 CORS (跨域资源共享) ---
-# 你的前端地址是 http://10.61.190.21:5174，这个配置是正确的
-CORS(app, resources={r"/api/*": {"origins": "http://10.61.190.21:5174"}}, supports_credentials=True)
+frontend_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "FRONTEND_ORIGINS",
+        "http://127.0.0.1:5174,http://localhost:5174,http://10.61.190.21:5174"
+    ).split(",")
+    if origin.strip()
+]
+CORS(app, resources={r"/api/*": {"origins": frontend_origins}}, supports_credentials=True)
 
 # --- 配置上传文件夹 ---
 UPLOAD_FOLDER = os.path.join(app.root_path, 'uploads') # 建议放在项目根目录下的 uploads 文件夹

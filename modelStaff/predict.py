@@ -10,7 +10,11 @@ import json
 
 # --- 1. 配置参数 ---
 # 模型权重路径 (使用你训练好的那个!)
-MODEL_PATH = '/home/hzcu/repo/modelStaff/ResNet50_v1.pth' 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.environ.get(
+    'MODEL_STAFF_MODEL_PATH',
+    os.path.join(BASE_DIR, 'ResNet50_v1.pth')
+)
 # 数据集根目录 (用来获取类别名称)
 # DATA_DIR = '/home/jovyan/notebook/Agri/PlantDiseases_Final_Split'
 # 类别数量
@@ -75,6 +79,12 @@ num_ftrs = model.fc.in_features
 model.fc = torch.nn.Linear(num_ftrs, NUM_CLASSES)
 
 # 加载我们训练好的模型参数
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(
+        f"Model weights not found: {MODEL_PATH}. "
+        "Set MODEL_STAFF_MODEL_PATH to the correct .pth file."
+    )
+
 model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
 model.to(DEVICE)
 model.eval()  # !!! 必须设置为评估模式 !!!
@@ -95,26 +105,22 @@ def predict_image(image_path):
     :param image_path: 图片文件的路径
     :return: (预测的类别名称, 置信度)
     """
-    try:
-        # 加载并预处理图片
-        image = Image.open(image_path).convert('RGB')
-        image_tensor = transform(image).unsqueeze(0).to(DEVICE) # 增加一个batch维度
+    # 加载并预处理图片
+    image = Image.open(image_path).convert('RGB')
+    image_tensor = transform(image).unsqueeze(0).to(DEVICE) # 增加一个batch维度
 
-        # 不计算梯度，加快速度
-        with torch.no_grad():
-            outputs = model(image_tensor)
-            # 使用softmax将输出转换为概率分布
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            # 找到概率最高的类别
-            confidence, predicted_idx = torch.max(probabilities, 1)
+    # 不计算梯度，加快速度
+    with torch.no_grad():
+        outputs = model(image_tensor)
+        # 使用softmax将输出转换为概率分布
+        probabilities = torch.nn.functional.softmax(outputs, dim=1)
+        # 找到概率最高的类别
+        confidence, predicted_idx = torch.max(probabilities, 1)
 
-        predicted_class = class_names[predicted_idx.item()]
-        confidence_score = confidence.item()
+    predicted_class = class_names[predicted_idx.item()]
+    confidence_score = confidence.item()
 
-        return predicted_class, confidence_score
-
-    except Exception as e:
-        return str(e), 0.0
+    return predicted_class, confidence_score
 
 # # --- 6. 主程序入口 (方便直接在命令行测试) ---
 # if __name__ == '__main__':
