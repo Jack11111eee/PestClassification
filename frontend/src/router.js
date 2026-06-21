@@ -33,7 +33,7 @@ const routes = [
     path: '/admin/users',
     name: 'AdminUsers',
     component: AdminUsers,
-    meta: { requiresAuth: true, requiresAdmin: true } // <-- 关键：确保只有管理员能访问
+    meta: { requiresAuth: true, requiresAdmin: true } // <-- 关键：标记该路由需要登录与管理员权限（实际校验需在路由守卫/后端实现）
   }
 ]
 
