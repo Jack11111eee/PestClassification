@@ -33,7 +33,7 @@ const routes = [
     path: '/admin/users',
     name: 'AdminUsers',
     component: AdminUsers,
-    meta: { requiresAdmin: true } // <-- 关键：确保只有管理员能访问
+    meta: { requiresAuth: true, requiresAdmin: true } // <-- 关键：确保只有管理员能访问
   }
 ]
 
